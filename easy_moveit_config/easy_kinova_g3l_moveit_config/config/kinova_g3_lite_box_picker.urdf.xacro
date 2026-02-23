@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="kinova_g3_lite_box_picker">
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+
+    <!-- Import kinova_g3_lite_box_picker urdf file -->
+    <xacro:include filename="$(find easy_simulation)/urdf/kinova_g3l_box_picker.urdf.xacro" />
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="kinova_g3_lite_box_picker.ros2_control.xacro" />
+
+
+    <xacro:kinova_g3_lite_box_picker_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>

@@ -1,0 +1,10 @@
+float64[7] target_pose # x y z qx qy qz qw
+string group_name
+
+float64[] initial_joint_positions
+---
+bool success
+string message
+
+bool in_collision
+float64[] joint_positions

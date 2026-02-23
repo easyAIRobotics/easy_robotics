@@ -1,0 +1,56 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+    <model name="cardboard_box_green">
+        <pose>0 0 0 0 0 0</pose>
+        <link name="link">
+            <inertial>
+                <mass>1.0</mass>
+                <inertia>
+                    <ixx>0.02</ixx>
+                    <ixy>0</ixy>
+                    <ixz>0</ixz>
+                    <iyy>0.03</iyy>
+                    <iyz>0</iyz>
+                    <izz>0.04</izz>
+                </inertia>
+            </inertial>
+            <collision name="collision">
+                <pose>0 0 0 0 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>0.15 0.12 0.09</size>
+                    </box>
+                </geometry>
+                <surface>
+                    <friction>
+                        <ode>
+                            <mu>1.0</mu>
+                            <mu2>1.0</mu2>
+                        </ode>
+                    </friction>
+                    <contact>
+                        <ode>
+                            <kp>10000000.0</kp>
+                            <kd>10000.0</kd>
+                            <min_depth>0.001</min_depth>
+                            <max_vel>0.1</max_vel>
+                        </ode>
+                    </contact>
+                    <bounce>
+                        <restitution_coefficient>0.0</restitution_coefficient>
+                        <threshold>1e100</threshold>
+                    </bounce>
+                </surface>
+            </collision>
+            <visual name="visual">
+                <pose>0 0 -0.045 0 0 0</pose>
+                <geometry>
+                    <mesh>
+                        <uri>meshes/cardboard_box_green.dae</uri>
+                        <scale>0.375 0.3 0.225</scale>
+                    </mesh>
+                </geometry>
+            </visual>
+        </link>
+    </model>
+</sdf>

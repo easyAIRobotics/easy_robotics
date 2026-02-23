@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: easy_simulation
+    relative_path: urdf/kinova_g3l_box_picker.urdf.xacro
+  srdf:
+    relative_path: config/kinova_g3_lite_box_picker.srdf
+  package_settings:
+    author_name: Hoang Dung Dinh
+    author_email: dinhhoangdung0712@gmail.com
+    generated_timestamp: 1763979146
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
