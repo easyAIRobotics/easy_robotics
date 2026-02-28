@@ -23,9 +23,11 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/BoundingBox.msg"
   "msg/BoundingBoxes.msg"
+  "msg/Pixel.msg"
   "srv/SetString.srv"
   "srv/SolveIK.srv"
   "srv/CheckCollision.srv"
+  "srv/ExecuteGoal.srv"
   DEPENDENCIES
     builtin_interfaces
     std_msgs

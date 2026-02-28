@@ -38,7 +38,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'demo_rl_trainer = easy_training.demo_rl_trainer:main'
+            'demo_rl_trainer = easy_training.demo_rl_trainer:main',
+            'experts_node = easy_training.experts_node:main',
         ],
     },
 )

@@ -1,5 +1,5 @@
 import asyncio
-from easy_interfaces.msg import BoundingBoxes, BoundingBox
+from easy_interfaces.msg import BoundingBoxes, BoundingBox, Pixel
 from rclpy.node import Node
 
 class BoundingBoxModule:
@@ -17,6 +17,12 @@ class BoundingBoxModule:
         self.selected_box_pub = self._node.create_publisher(
             BoundingBox,
             "/selected_box",
+            1,
+        )
+        
+        self.selected_point_pub = self._node.create_publisher(
+            Pixel,
+            "/selected_point",
             1,
         )
 
@@ -52,20 +58,29 @@ class BoundingBoxModule:
 
     # Called later for inbound WS messages
     def handle_ws_message(self, data: dict):
-        if data.get("type") != "selected_box":
-            return
-        
-        box = data["box"]
-        self._node.get_logger().info(
-            f"Selected box received: {box}"
-        )
+        if data.get("type") == "selected_box":        
+            box = data["box"]
+            self._node.get_logger().info(
+                f"Selected box received: {box}"
+            )
 
-        msg = BoundingBox()
-        msg.class_id = box["label"]
-        msg.confidence = box["score"]
-        msg.x = box["x"]
-        msg.y = box["y"]
-        msg.w = box["w"]
-        msg.h = box["h"]
+            msg = BoundingBox()
+            msg.class_id = box["label"]
+            msg.confidence = box["score"]
+            msg.x = box["x"]
+            msg.y = box["y"]
+            msg.w = box["w"]
+            msg.h = box["h"]
 
-        self.selected_box_pub.publish(msg)
+            self.selected_box_pub.publish(msg)
+        if data.get("type") == "selected_point":
+            point = data["point"]
+            self._node.get_logger().info(
+                f"Selected point received: {point}"
+            )
+            
+            msg = Pixel()
+            msg.px = point["x"]
+            msg.py = point["y"]
+
+            self.selected_point_pub.publish(msg)

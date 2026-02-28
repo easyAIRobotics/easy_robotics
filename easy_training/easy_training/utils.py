@@ -35,7 +35,7 @@ def quaternion_distance(q1, q2):
 def transform_distance(pose1, pose2):
     """Calculate a distance metric between two poses (position + orientation)."""
     pos_dist = np.linalg.norm(np.array(pose1[0:3]) - np.array(pose2[0:3]))
-    ori_dist = quaternion_distance(pose1[3:7], pose2[3:7])
+    ori_dist = quaternion_distance(np.array(pose1[3:7]), np.array(pose2[3:7]))
     return pos_dist + ori_dist
 
 

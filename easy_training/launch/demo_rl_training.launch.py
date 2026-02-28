@@ -45,9 +45,21 @@ def generate_launch_description():
             ('camera/depth', '/camera/depth_image'),
             ('camera/info', '/camera/camera_info'),
         ],
+        # output='screen'
+    )
+    
+    experts_node = Node(
+        package='easy_training',
+        executable='experts_node',
+        name='experts_node',
+        remappings=[
+            ('camera/depth', '/camera/depth_image'),
+            ('camera/info', '/camera/camera_info'),
+        ],
         output='screen'
     )
     
     return LaunchDescription([
         skill_execution_trainer_node,
+        experts_node,
     ])

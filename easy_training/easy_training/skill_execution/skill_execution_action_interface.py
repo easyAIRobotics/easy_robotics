@@ -9,8 +9,11 @@ from moveit.core.robot_state import RobotState
 from moveit.core.planning_scene import PlanningScene
 
 from std_msgs.msg import Float64MultiArray, Bool
+from std_srvs.srv import SetBool
 from easy_interfaces.srv import SolveIK, CheckCollision
 from controller_manager_msgs.srv import SwitchController
+
+import copy
 
 IK_FAILURE_PENALTY = 1.0
 COLLISION_PENALTY = 1.0
@@ -32,11 +35,29 @@ class SkillExecutionActionInterface(ActionInterface):
         
         self.switch_controller_client = self._node.create_client(
             SwitchController, 'controller_manager/switch_controller', callback_group=self.action_interface_callback_group)
+        
+        self.enable_picking_expert_client = self._node.create_client(
+            SetBool, "picking_expert/enable", callback_group=self.action_interface_callback_group)
+        
+        self.enable_placing_expert_client = self._node.create_client(
+            SetBool, "placing_expert/enable", callback_group=self.action_interface_callback_group)
+        
         self.joint_command_pub = self._node.create_publisher(
             Float64MultiArray, 'forward_position_joint_controller/commands', 1, callback_group=self.action_interface_callback_group)
         
         self.cmd_suction_pub = self._node.create_publisher(
             Bool, 'cmd_suction', 1, callback_group=self.action_interface_callback_group)
+        
+    def set_action(self, action):
+        super().set_action(action)
+        # Enable or disable expert based on mode
+        enable_expert_req = SetBool.Request()
+        enable_expert_req.data = (self._mode == AgentMode.BEHAVIOR_CLONING)
+        
+        if self.action == "pick":
+            self.enable_picking_expert_client.call_async(enable_expert_req)
+        elif self.action == "place":
+            self.enable_placing_expert_client.call_async(enable_expert_req)
         
         
     def set_mode(self, mode: AgentMode):
@@ -53,7 +74,16 @@ class SkillExecutionActionInterface(ActionInterface):
             sw_req.activate_controllers = ['forward_position_joint_controller']
         sw_req.strictness = SwitchController.Request.STRICT
         sw_req.activate_asap = True
-        # self.switch_controller_client.wait_for_service()
+
+        # Enable or disable expert based on mode
+        enable_expert_req = SetBool.Request()
+        enable_expert_req.data = (self._mode == AgentMode.BEHAVIOR_CLONING)
+        
+        if self.action == "pick":
+            self.enable_picking_expert_client.call_async(enable_expert_req)
+        elif self.action == "place":
+            self.enable_placing_expert_client.call_async(enable_expert_req)
+            
         future = self.switch_controller_client.call_async(sw_req)
         while not future.done():
             time.sleep(0.001)
@@ -67,7 +97,7 @@ class SkillExecutionActionInterface(ActionInterface):
     
     # Perform action and return the reward"""
     def perform(self, act: dict, state_interface: StateInterface) -> tuple[float, dict]:
-        state = state_interface.get_state()
+        state = copy.deepcopy(state_interface.get_state())  # Get current state
         reward = 0.0
         if act:
             print(f"[SkillExecutionActionInterface] Performing action: {act}", flush=True)
@@ -111,7 +141,11 @@ class SkillExecutionActionInterface(ActionInterface):
                 }
                 
                 # Dont record expert demonstration if no movement is taken
-                if transform_distance(state["eef_pose"], next_state["eef_pose"]) < 1e-3 and \
+                tf_dist = transform_distance(state["eef_pose"], next_state["eef_pose"])
+                print(f"[SkillExecutionActionInterface] Waiting for expert demonstration... Current EEF distance moved: {tf_dist:.4f}, suction command: {taken_act['suction_command']}", flush=True)
+                print(f"[SkillExecutionActionInterface] Current state: {state['eef_pose']}", flush=True)
+                print(f"[SkillExecutionActionInterface] Next state: {next_state['eef_pose']}", flush=True)
+                if tf_dist < 1e-3 and \
                         taken_act["suction_command"]  == state["cmd_suction_state"]:
                     continue
                 

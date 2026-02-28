@@ -51,7 +51,7 @@ class BoxSpawner:
             "target_box": "model://cardboard_box_green"
         }
 
-        self.center_pose = [0.3, 0.0, 1.6]
+        self.center_pose = [0.4, 0.0, 1.6]
         self.std_pose = [AREA_RADIUS / 3, AREA_RADIUS / 3, 0.0]
         
         self.respawn_boxes_srv = self.ros_node.create_service(

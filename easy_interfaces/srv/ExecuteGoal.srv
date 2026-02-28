@@ -1,0 +1,7 @@
+geometry_msgs/PoseStamped goal
+float64 speed_factor
+
+---
+
+bool success
+string message

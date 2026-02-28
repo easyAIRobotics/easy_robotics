@@ -28,6 +28,11 @@ class ActionInterface:
         self._node = node
         self.frequency = 10.0  # Default frequency for action execution
         self.action_interface_callback_group = ReentrantCallbackGroup()
+        self.action = None
+        
+    def set_action(self, action: str):
+        self.action = action
+        self._node.get_logger().info(f"[ActionInterface] Action set to: {self.action}")
     
     # Perform action and return the reward"""
     def perform(self, act: dict, state_interface: StateInterface) -> tuple[float, dict]:

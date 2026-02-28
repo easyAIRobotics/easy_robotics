@@ -16,9 +16,11 @@
 
 #include "easy_interfaces/srv/solve_ik.hpp"
 #include "easy_interfaces/srv/check_collision.hpp"
+#include "easy_interfaces/srv/execute_goal.hpp"
 
 using SolveIK = easy_interfaces::srv::SolveIK;
 using CheckCollision = easy_interfaces::srv::CheckCollision;
+using ExecuteGoal = easy_interfaces::srv::ExecuteGoal;
 
 class MoveItExecutorNode
 {
@@ -72,6 +74,15 @@ public:
         service_cb_group_);
 
     RCLCPP_INFO(node_->get_logger(), "SolveIK + CheckCollision services ready");
+
+    execute_goal_srv_ = node_->create_service<ExecuteGoal>(
+        "execute_goal",
+        std::bind(&MoveItExecutorNode::handleExecuteGoal,
+                  this,
+                  std::placeholders::_1,
+                  std::placeholders::_2),
+        rclcpp::ServicesQoS(),
+        service_cb_group_);
   }
 
 private:
@@ -107,14 +118,6 @@ private:
       res->success = false;
       res->message = "Initial joint position size mismatch";
       return;
-    }
-
-    std::vector<double> seed_joint_values;
-    kinematics_state->copyJointGroupPositions(jmg, seed_joint_values);
-    RCLCPP_INFO(node_->get_logger(), "Seed joint values:");
-    for (size_t i = 0; i < seed_joint_values.size(); ++i)
-    {
-      RCLCPP_INFO(node_->get_logger(), "  Joint %zu: %f", i + 1, seed_joint_values[i]);
     }
 
     // -------------------------------
@@ -201,6 +204,101 @@ private:
     res->in_collision = cres.collision;
   }
 
+  // ==========================================================
+  // Execute Goal Service
+  // ==========================================================
+  void handleExecuteGoal(
+      const std::shared_ptr<ExecuteGoal::Request> req,
+      std::shared_ptr<ExecuteGoal::Response> res)
+  {
+    RCLCPP_INFO(node_->get_logger(), "Received request to set end effector pose");
+    if (planAndExecute(transformPoseToWorld(req->goal.pose), req->speed_factor))
+    {
+      res->success = true;
+      res->message = "Pose set successfully";
+      RCLCPP_INFO(node_->get_logger(), "Pose set successfully");
+    }
+    else
+    {
+      res->success = false;
+      res->message = "Failed to set pose";
+      RCLCPP_ERROR(node_->get_logger(), "Failed to set pose");
+    }
+  }
+
+  bool planAndExecute(const geometry_msgs::msg::Pose &target_pose,
+                      const double speed_factor = 1.0)
+  {
+    move_group_->setPlanningTime(10.0);
+    move_group_->setMaxVelocityScalingFactor(speed_factor);
+    move_group_->setStartStateToCurrentState();
+
+    // Define validity callback for collision checking
+    auto validity_callback =
+        [this](moveit::core::RobotState *state,
+               const moveit::core::JointModelGroup *jmg,
+               const double *ik_solution) -> bool
+    {
+      state->setJointGroupPositions(jmg, ik_solution);
+
+      collision_detection::CollisionRequest collision_request;
+      collision_detection::CollisionResult collision_result;
+      planning_scene_->checkCollision(collision_request, collision_result, *state);
+
+      RCLCPP_INFO(node_->get_logger(), "IK solver check collision: %s",
+                  collision_result.collision ? "true" : "false");
+      return !collision_result.collision; // valid if no collision
+    };
+
+    // Get joint model group
+    const moveit::core::JointModelGroup *jmg =
+        kinematics_model->getJointModelGroup(planning_group_);
+    kinematics_state = move_group_->getCurrentState();
+    kinematics_state->update();
+    bool found_ik = false;
+    for (size_t i = 0; i < 10; ++i)
+    {
+      found_ik = kinematics_state->setFromIK(
+          jmg, target_pose,
+          0.2, validity_callback);
+
+      if (found_ik)
+        break;
+    }
+
+    if (!found_ik)
+    {
+      RCLCPP_ERROR(node_->get_logger(), "IK not found");
+      move_group_->clearPathConstraints();
+      return false;
+    }
+
+    // Extract the resulting joint values
+    std::vector<double> joint_values;
+    kinematics_state->copyJointGroupPositions(jmg, joint_values);
+    move_group_->setJointValueTarget(joint_values);
+
+    RCLCPP_INFO(node_->get_logger(), "Joint values for target pose:");
+    for (size_t i = 0; i < joint_values.size(); ++i)
+    {
+      RCLCPP_INFO(node_->get_logger(), "  Joint %zu: %f", i + 1, joint_values[i]);
+    }
+
+    // Plan and execute
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
+    if (success)
+    {
+      move_group_->execute(plan);
+    }
+
+    // Clear constraints for next motions
+    move_group_->clearPathConstraints();
+
+    return success;
+  }
+
   geometry_msgs::msg::Pose transformPoseToWorld(
       const geometry_msgs::msg::Pose &pose_in_base)
   {
@@ -239,6 +337,7 @@ private:
 
   rclcpp::Service<SolveIK>::SharedPtr solve_ik_srv_;
   rclcpp::Service<CheckCollision>::SharedPtr check_collision_srv_;
+  rclcpp::Service<ExecuteGoal>::SharedPtr execute_goal_srv_;
   rclcpp::CallbackGroup::SharedPtr service_cb_group_;
 };
 

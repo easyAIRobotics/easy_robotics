@@ -3,11 +3,9 @@ Panels:
     Help Height: 70
     Name: Displays
     Property Tree Widget:
-      Expanded:
-        - /MotionPlanning1
-        - /PointCloud21
+      Expanded: ~
       Splitter Ratio: 0.5
-    Tree Height: 94
+    Tree Height: 783
   - Class: rviz_common/Help
     Name: Help
   - Class: rviz_common/Views
@@ -293,6 +291,70 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Filter (blacklist): ""
+      Filter (whitelist): ""
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+        arm_link:
+          Value: true
+        base_link:
+          Value: true
+        camera_frame:
+          Value: true
+        camera_optical_frame:
+          Value: true
+        dummy_link:
+          Value: true
+        end_effector_link:
+          Value: true
+        forearm_link:
+          Value: true
+        lower_wrist_link:
+          Value: true
+        picking_pose:
+          Value: true
+        shoulder_link:
+          Value: true
+        suction_gripper_base:
+          Value: true
+        tool_frame:
+          Value: true
+        upper_wrist_link:
+          Value: true
+        virtual_suction_tip:
+          Value: true
+        world:
+          Value: true
+      Marker Scale: 1
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Tree:
+        world:
+          base_link:
+            camera_frame:
+              camera_optical_frame:
+                {}
+            picking_pose:
+              {}
+            shoulder_link:
+              arm_link:
+                forearm_link:
+                  lower_wrist_link:
+                    upper_wrist_link:
+                      end_effector_link:
+                        dummy_link:
+                          tool_frame:
+                            {}
+                        suction_gripper_base:
+                          virtual_suction_tip:
+                            {}
+      Update Interval: 0
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -311,7 +373,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 4.149599075317383
+      Distance: 1.9270907640457153
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -334,7 +396,7 @@ Visualization Manager:
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 975
+  Height: 1011
   Help:
     collapsed: false
   Hide Left Dock: false
@@ -345,9 +407,9 @@ Window Geometry:
     collapsed: false
   MotionPlanning - Trajectory Slider:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000100000000000002b400000371fc0200000006fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000004400fffffffb000000100044006900730070006c006100790073010000003f000000e4000000cc00fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e00670100000129000001c40000019600fffffffb0000000800480065006c0070000000029a0000006e0000006f00fffffffb0000000a0056006900650077007301000002f3000000bd000000a900fffffffb0000000a0049006d00610067006503000000e1000000b0000002b400000247000001f60000037100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000200000000000002b400000395fc0200000004fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000004400fffffffb000000100044006900730070006c006100790073010000003f00000395000000cc00fffffffb0000000800480065006c0070000000029a0000006e0000006f00fffffffb0000000a0049006d00610067006503000000e1000000b0000002b400000247000000010000021700000395fc0200000002fb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e0067010000003f000001eb0000019600fffffffb0000000a005600690065007700730100000230000001a4000000a900ffffff000002670000039500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: false
-  Width: 1200
-  X: 2036
+  Width: 1854
+  X: 1986
   Y: 110

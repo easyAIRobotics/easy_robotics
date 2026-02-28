@@ -37,6 +37,7 @@ def launch_setup(context, *args, **kwargs):
             publish_robot_description=True, publish_robot_description_semantic=True
         )
         .planning_pipelines(pipelines=["ompl"])
+        .sensors_3d(file_path="config/sensors_3d.yaml")
         .to_moveit_configs()
     )
 

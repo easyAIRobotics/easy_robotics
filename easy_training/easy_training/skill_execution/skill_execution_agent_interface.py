@@ -23,11 +23,13 @@ class SkillExecutionAgentInterface(AgentInterface):
             callback=self.set_action_callback
         )
         self.action = "pick"
+        self.action_interface.set_action(self.action)
         
         
     def set_action_callback(self, request, response):
         self._node.get_logger().info(f"Received request to set action to: {request.data}")
         self.action = request.data
+        self.action_interface.set_action(self.action)
         response.success = True
         response.message = f"Agent action set to {request.data}"
         return response
