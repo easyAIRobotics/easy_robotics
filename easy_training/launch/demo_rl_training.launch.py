@@ -45,7 +45,7 @@ def generate_launch_description():
             ('camera/depth', '/camera/depth_image'),
             ('camera/info', '/camera/camera_info'),
         ],
-        # output='screen'
+        output='screen'
     )
     
     experts_node = Node(

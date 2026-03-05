@@ -24,13 +24,18 @@ TOOL_FRAME = 'virtual_suction_tip'
 
 DOWNSAMPLE_RATIO = 4
 DEPTH_SCALE = 1
+
+SKILL_VOCAB = {
+    "pick": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+    "place": np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    "move": np.array([0.0, 0.0, 1.0], dtype=np.float32)
+}
         
 class SkillExecutionStateInterface(StateInterface):
     def __init__(self, node: Node):
         super().__init__(node)
         
         self.state = {}
-        self._mode = AgentMode.IDLE
         self.depth_transform_mtx = None
         
         # Points publisher (in debug mode)
@@ -119,12 +124,6 @@ class SkillExecutionStateInterface(StateInterface):
         return not (self.camera_info is None or 
                     self.depth_transform_mtx is None or 
                     self.selected_bbox is None)
-        
-    def set_mode(self, mode: AgentMode):
-        self._mode = mode
-        self._node.get_logger().info(f"[SkillExecutionStateInterface] Mode set to: {self._mode.name}")
-        if self._mode == AgentMode.IDLE:
-            self.selected_bbox = None
 
 
     def tf_timer_callback(self):
@@ -282,3 +281,14 @@ class SkillExecutionStateInterface(StateInterface):
         
         # Reward for closer distance to target (if target is defined in state)
         return reward
+    
+    
+    def get_image(self):
+        return self.state["point_image"]
+    
+    def get_skill(self):
+        return SKILL_VOCAB[self.action]
+    
+    def get_robot_state(self):
+        return np.array(self.state["eef_pose"] + [self.state["suction_state"]], dtype=np.float32)
+        

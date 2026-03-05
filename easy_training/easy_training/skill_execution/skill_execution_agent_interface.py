@@ -1,6 +1,11 @@
+import threading
+import time
+
 from easy_training.agent_interfaces import AgentInterface, ActionInterface, StateInterface
 from easy_training.skill_execution.skill_execution_action_interface import SkillExecutionActionInterface
 from easy_training.skill_execution.skill_execution_state_interface import SkillExecutionStateInterface
+from easy_training.skill_execution.skill_execution_memory import SkillExecutionReplayBuffer
+from easy_training.sac.skill_execution_sac_agent import SkillExecutionSACAgent
 
 import rclpy
 from rclpy.node import Node
@@ -25,34 +30,100 @@ class SkillExecutionAgentInterface(AgentInterface):
         self.action = "pick"
         self.action_interface.set_action(self.action)
         
+        self.rl_replay_buffer = SkillExecutionReplayBuffer(
+            capacity=100,
+            image_shape=(120, 160, 4),
+            skill_dim=3,
+            robot_state_dim=8,
+            action_dim=8,
+            device="cuda"
+        )
+        
+        self.bc_replay_buffer = SkillExecutionReplayBuffer(
+            capacity=100,
+            image_shape=(120, 160, 4),
+            skill_dim=3,
+            robot_state_dim=8,
+            action_dim=8,
+            device="cuda"
+        )
+        
+        self.sac_agent = SkillExecutionSACAgent(node)
+        
         
     def set_action_callback(self, request, response):
         self._node.get_logger().info(f"Received request to set action to: {request.data}")
         self.action = request.data
         self.action_interface.set_action(self.action)
+        self.state_interface.set_action(self.action)
         response.success = True
         response.message = f"Agent action set to {request.data}"
         return response
-        
-    def infer_action(self, state):
-        eef_pose = state["eef_pose"]
-        random_vector = [random.gauss(0.0, 0.001), random.gauss(0.0, 0.001), random.gauss(0.0, 0.001), 0.0, 0.0, 0.0, 0.0]
-        
-        suction_command = state["cmd_suction_state"]
-        
-        if random.random() < 0.1:
-            suction_command = 1.0 - suction_command
-        
-        act = {
-            "eef_pose": [eef_pose_val + rand_val for eef_pose_val, rand_val in zip(eef_pose, random_vector)],
-            "suction_command": suction_command
-        }
-                
-        return act
     
+
+    def infer_action(self, deterministic=True):
+        state_dict = {
+            "image": self.state_interface.get_image(),
+            "skill": self.state_interface.get_skill(),
+            "robot_state": self.state_interface.get_robot_state()
+        }
+        return self.sac_agent.infer_action(state_dict, deterministic=deterministic)
+
+
     def update(self):
-        print(f"[SkillExecutionAgentInterface] Updating agent based on replay buffer with {len(self.replay_buffer)} samples", flush=True)
+        # Return if an update is already in progress
+        if hasattr(self, "_update_thread") and self._update_thread.is_alive():
+            print("[SkillExecutionAgentInterface] Update already in progress, skipping new update call", flush=True)
+            return
+        
+        with self._update_lock:
+            self._update_thread = threading.Thread(
+                target=self._update_worker,
+                daemon=True
+            )
+            self._update_thread.start()
+
+    def _update_worker(self):
+        print("[SkillExecutionAgentInterface] Updating agent based on replay buffers", flush=True)
+        try:
+            with self._buffer_lock:
+                rl_batch = self.rl_replay_buffer.sample(64)
+                bc_batch = self.bc_replay_buffer.sample(64)
+
+            self.sac_agent.update(rl_batch, bc_batch)
+
+        except Exception as e:
+            print(f"[SkillExecutionAgentInterface] Update failed: {e}")
         
         
     def reset(self):
         print(f"[SkillExecutionAgentInterface] Resetting agent state", flush=True)
+        
+        
+    def add_rl_transition(self, transition: dict):
+        with self._buffer_lock:
+            print(f"[SkillExecutionAgentInterface] Adding RL transition to replay buffer", flush=True)
+            self.rl_replay_buffer.add(
+                image=transition["image"],
+                skill=transition["skill"],
+                robot_state=transition["robot_state"],
+                action=transition["action"],
+                reward=transition["reward"],
+                next_image=transition["next_image"],
+                next_skill=transition["next_skill"],
+                next_robot_state=transition["next_robot_state"]
+            )
+        
+    def add_bc_transition(self, transition: dict):
+        with self._buffer_lock:
+            print(f"[SkillExecutionAgentInterface] Adding BC transition to replay buffer", flush=True)
+            self.bc_replay_buffer.add(
+                image=transition["image"],
+                skill=transition["skill"],
+                robot_state=transition["robot_state"],
+                action=transition["action"],
+                reward=transition["reward"],
+                next_image=transition["next_image"],
+                next_skill=transition["next_skill"],
+                next_robot_state=transition["next_robot_state"]
+            )

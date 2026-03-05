@@ -61,7 +61,7 @@ class SkillExecutionActionInterface(ActionInterface):
         
         
     def set_mode(self, mode: AgentMode):
-        self._mode = mode
+        super().set_mode(mode)
         self._node.get_logger().info(f"[SkillExecutionActionInterface] Mode set to: {self._mode.name}")
         
         # Switch controllers based on mode
@@ -96,10 +96,18 @@ class SkillExecutionActionInterface(ActionInterface):
                 
     
     # Perform action and return the reward"""
-    def perform(self, act: dict, state_interface: StateInterface) -> tuple[float, dict]:
+    def perform(self, act_vec: list, state_interface: StateInterface) -> dict:
         state = copy.deepcopy(state_interface.get_state())  # Get current state
+        
         reward = 0.0
-        if act:
+        if act_vec:
+            act = {
+                "eef_pose": act_vec[:7],
+                "suction_command": act_vec[7]
+            }
+            
+            for i in range(3):
+                act["eef_pose"][i] += state["eef_pose"][i]  # Convert from delta to absolute position
             print(f"[SkillExecutionActionInterface] Performing action: {act}", flush=True)
             
             EEF_diff = transform_distance(
@@ -130,7 +138,7 @@ class SkillExecutionActionInterface(ActionInterface):
             if joint_positions and self.check_collision(joint_positions):
                 reward -= COLLISION_PENALTY  # Penalize for collision
         
-        if not act:
+        if not act_vec:
             print(f"[SkillExecutionActionInterface] No action provided, wait for expert demonstration or next state", flush=True)
             while self._mode == AgentMode.BEHAVIOR_CLONING:
                 self.wait_for_next_state()
@@ -153,11 +161,23 @@ class SkillExecutionActionInterface(ActionInterface):
             
             if self._mode != AgentMode.BEHAVIOR_CLONING:
                 return 0.0, {}  # No action taken, no reward when switching mode
-            
+        
+        taken_act_vec = taken_act["eef_pose"] + [taken_act["suction_command"]]
+        taken_act_vec[:3] = [taken_act_vec[i] - state["eef_pose"][i] for i in range(3)]
+        
         # Accumulate reward from next state
         reward += state_interface.get_reward()
+        transition = {
+            "action": np.array(taken_act_vec),
+            "image": state_interface.get_image(),
+            "skill": state_interface.get_skill(),
+            "robot_state": state_interface.get_robot_state(),
+            "next_image": state_interface.get_image(),
+            "next_skill": state_interface.get_skill(),
+            "next_robot_state": state_interface.get_robot_state(),
+        }
         
-        return reward, taken_act
+        return reward, transition
     
     
     def solve_IK(self, target_pose: list[float], initial_joint_positions: list[float]) -> list[float]:
