@@ -72,7 +72,7 @@ class SkillExecutionAgentInterface(AgentInterface):
 
     def update(self):
         # Return if an update is already in progress
-        if hasattr(self, "_update_thread") and self._update_thread.is_alive():
+        if self._update_thread is not None and self._update_thread.is_alive():
             print("[SkillExecutionAgentInterface] Update already in progress, skipping new update call", flush=True)
             return
         
@@ -113,6 +113,7 @@ class SkillExecutionAgentInterface(AgentInterface):
                 next_skill=transition["next_skill"],
                 next_robot_state=transition["next_robot_state"]
             )
+            print(f"[SkillExecutionAgentInterface] RL Buffer size: {self.rl_replay_buffer.size()}", flush=True)
         
     def add_bc_transition(self, transition: dict):
         with self._buffer_lock:
@@ -127,3 +128,4 @@ class SkillExecutionAgentInterface(AgentInterface):
                 next_skill=transition["next_skill"],
                 next_robot_state=transition["next_robot_state"]
             )
+            print(f"[SkillExecutionAgentInterface] BC Buffer size: {self.bc_replay_buffer.size()}", flush=True)

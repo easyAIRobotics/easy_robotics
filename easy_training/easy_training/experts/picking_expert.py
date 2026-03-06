@@ -124,7 +124,7 @@ class PickingExpert:
                 self._tf_broadcaster.sendTransform(t)
                 
                 goal_req = ExecuteGoal.Request()
-                goal_req.speed_factor = 1.0
+                goal_req.speed_factor = 0.3
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
                 goal_req.goal.pose.position.x = float(picking_point[0])

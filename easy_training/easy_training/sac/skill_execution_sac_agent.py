@@ -1,7 +1,11 @@
+import time
+
 import torch
 import torch.nn as nn
 from torch.distributions import Normal
 import torch.nn.functional as F
+
+import numpy as np
 
 from easy_training.sac.sac_agent import SACAgent
 
@@ -92,8 +96,8 @@ class SkillExecutionPolicyNetwork(nn.Module):
             nn.ReLU(),
         )
 
-        self.mean = nn.Linear(hidden_dim // 2, action_dim)
-        self.log_std = nn.Linear(hidden_dim // 2, action_dim)
+        self.mean = nn.Linear(hidden_dim, action_dim)
+        self.log_std = nn.Linear(hidden_dim, action_dim)
 
         self.LOG_STD_MIN = -10
         self.LOG_STD_MAX = 2
@@ -116,36 +120,21 @@ class SkillExecutionPolicyNetwork(nn.Module):
 
         normal = Normal(mean, std)
         z = normal.rsample()
-        raw_action = torch.tanh(z)
 
-        # Delta position
-        delta_pos = raw_action[:, :3] * self.delta_pos_max
+        # SAC action
+        action = torch.tanh(z)
 
-        # Quaternion
-        quat_raw = raw_action[:, 3:]
-        quat = F.normalize(quat_raw, p=2, dim=-1)
-        quat = torch.where(quat[:, -1:] < 0, -quat, quat)
-
-        action = torch.cat([delta_pos, quat], dim=-1)
-
-        # Correct tanh log-prob
+        # Tanh correction
         log_prob = normal.log_prob(z)
-        log_prob -= torch.log(1 - raw_action.pow(2) + 1e-6)
+        log_prob -= torch.log(1 - action.pow(2) + 1e-6)
         log_prob = log_prob.sum(dim=-1, keepdim=True)
 
         return action, log_prob
 
     def deterministic(self, state):
         mean, _ = self.forward(state)
-        raw_action = torch.tanh(mean)
-
-        delta_pos = raw_action[:, :3] * self.delta_pos_max
-
-        quat_raw = raw_action[:, 3:]
-        quat = F.normalize(quat_raw, p=2, dim=-1)
-        quat = torch.where(quat[:, -1:] < 0, -quat, quat)
-
-        return torch.cat([delta_pos, quat], dim=-1)
+        action = torch.tanh(mean)
+        return action
     
 class SkillExecutionCriticNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim=256):
@@ -216,26 +205,61 @@ class SkillExecutionSACAgent(SACAgent):
         
     def infer_action(self, state: tuple, deterministic=True):
         rl_img, obs_skill, obs_robot = state
+
         rl_img = rl_img.to(self.device)
         obs_skill = obs_skill.to(self.device)
         obs_robot = obs_robot.to(self.device)
-        
+
         z = self.encoder(rl_img)
         state_vec = torch.cat([z, obs_skill, obs_robot], dim=-1)
-        
+
         with torch.no_grad():
             if deterministic:
                 action = self.policy.deterministic(state_vec)
             else:
                 action, _ = self.policy.sample(state_vec)
-        return action.cpu().numpy()
+
+        action = action.cpu().numpy()
+
+        # -----------------------------
+        # Post-processing
+        # -----------------------------
+
+        # delta position scaling
+        delta_pos = action[..., :3] * MAX_STEP_DELTA
+
+        # quaternion normalization
+        quat = action[..., 3:7]
+        norm = np.linalg.norm(quat, axis=-1, keepdims=True) + 1e-8
+        quat = quat / norm
+
+        # enforce positive w
+        mask = quat[..., 3:4] < 0
+        quat = np.where(mask, -quat, quat)
+
+        # suction command
+        suction = action[..., 7:8]
+        suction = np.clip(suction, -1, 1)
+
+        processed_action = np.concatenate(
+            [delta_pos, quat, suction],
+            axis=-1
+        )
+
+        return processed_action
     
 
     def update(self, rl_samples=None, bc_samples=None):
+        start_update_time = time.time()
         torch.cuda.set_device(0)
         if rl_samples is None and bc_samples is None:
             print("[SkillExecutionSACAgent] No samples available. Skipping.")
             return None
+        
+        if rl_samples is not None:
+            print(f"[SkillExecutionSACAgent] Updating with RL samples. Batch size: {rl_samples[0][0].shape[0]}", flush=True)
+        if bc_samples is not None:
+            print(f"[SkillExecutionSACAgent] Updating with BC samples. Batch size: {bc_samples[0][0].shape[0]}", flush=True)
 
         ########################################
         # --------- Build Combined Batch ------
@@ -363,6 +387,9 @@ class SkillExecutionSACAgent(SACAgent):
 
         for target_param, param in zip(self.target_q2.parameters(), self.q2.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            
+        print(f"[SkillExecutionSACAgent] Update complete. Time taken: {time.time() - start_update_time:.2f} seconds. Q1 Loss: {q1_loss.item():.4f}, Q2 Loss: {q2_loss.item():.4f}, SAC Loss: {sac_loss.item():.4f}, BC Loss: {bc_loss.item() if bc_samples is not None else 0.0:.4f}", flush=True)
+        print(f"[SkillExecutionSACAgent] Update complete. Q1 Loss: {q1_loss.item():.4f}, Q2 Loss: {q2_loss.item():.4f}, SAC Loss: {sac_loss.item():.4f}, BC Loss: {bc_loss.item() if bc_samples is not None else 0.0:.4f}", flush=True)
 
         return {
             "q1_loss": q1_loss.item(),
@@ -370,3 +397,4 @@ class SkillExecutionSACAgent(SACAgent):
             "sac_loss": sac_loss.item(),
             "bc_loss": bc_loss.item() if bc_samples is not None else 0.0
         }
+        

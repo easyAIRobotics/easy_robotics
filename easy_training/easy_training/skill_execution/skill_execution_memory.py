@@ -14,7 +14,7 @@ class SkillExecutionReplayBuffer:
         self.capacity = capacity
         self.device = device
         self.ptr = 0
-        self.size = 0
+        self.buffer_size = 0
 
         M, N, C = image_shape
 
@@ -64,17 +64,17 @@ class SkillExecutionReplayBuffer:
         self.next_robot_states[self.ptr] = next_robot_state
 
         self.ptr = (self.ptr + 1) % self.capacity
-        self.size = min(self.size + 1, self.capacity)
+        self.buffer_size = min(self.buffer_size + 1, self.capacity)
 
     # ======================================================
     # Sample batch
     # ======================================================
     def sample(self, batch_size):
-        if self.size == 0:
+        if self.buffer_size == 0:
             print("[SkillExecutionReplayBuffer] Not enough samples to draw a batch. Returning None.")
             return None
             
-        idx = np.random.randint(0, self.size, size=batch_size)
+        idx = np.random.randint(0, self.buffer_size, size=batch_size)
 
         # -------- Current --------
         images = torch.from_numpy(self.images[idx]).to(self.device)
@@ -99,3 +99,7 @@ class SkillExecutionReplayBuffer:
             rewards,
             (next_images, next_skills, next_robot_states),
         )
+
+
+    def size(self):
+        return self.buffer_size
