@@ -124,7 +124,7 @@ class PickingExpert:
                 self._tf_broadcaster.sendTransform(t)
                 
                 goal_req = ExecuteGoal.Request()
-                goal_req.speed_factor = 0.3
+                goal_req.speed_factor = 0.2
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
                 goal_req.goal.pose.position.x = float(picking_point[0])
@@ -238,7 +238,7 @@ class PickingExpert:
         # 6) Convert to quaternion
         # ---------------------------
         picking_quat = tf_transformations.quaternion_from_matrix(T)
-        picking_point += 0.015 * normal_base  # offset along normal for better grasping
+        picking_point += 0.01 * normal_base  # offset along normal for better grasping
 
         return picking_point, picking_quat
     

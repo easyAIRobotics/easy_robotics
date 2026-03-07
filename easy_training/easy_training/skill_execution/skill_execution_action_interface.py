@@ -140,7 +140,7 @@ class SkillExecutionActionInterface(ActionInterface):
         
         if not act_vec:
             print(f"[SkillExecutionActionInterface] No action provided, wait for expert demonstration or next state", flush=True)
-            while self._mode == AgentMode.BEHAVIOR_CLONING:
+            if self._mode == AgentMode.BEHAVIOR_CLONING:
                 self.wait_for_next_state()
                 next_state = state_interface.get_state()  # Get current state
                 taken_act = {
@@ -149,18 +149,16 @@ class SkillExecutionActionInterface(ActionInterface):
                 }
                 
                 # Dont record expert demonstration if no movement is taken
-                tf_dist = transform_distance(state["eef_pose"], next_state["eef_pose"])
-                print(f"[SkillExecutionActionInterface] Waiting for expert demonstration... Current EEF distance moved: {tf_dist:.4f}, suction command: {taken_act['suction_command']}", flush=True)
-                print(f"[SkillExecutionActionInterface] Current state: {state['eef_pose']}", flush=True)
-                print(f"[SkillExecutionActionInterface] Next state: {next_state['eef_pose']}", flush=True)
-                if tf_dist < 1e-3 and \
+                tf_dist = joint_distance(state["joint_positions"], next_state["joint_positions"])
+                print(f"tf_dist {tf_dist}", flush=True)
+                if tf_dist < 1e-4 and \
                         taken_act["suction_command"]  == state["cmd_suction_state"]:
-                    continue
-                
-                break
+                    return 0.0, {}  # No action taken, skipping
+                            
             
-            if self._mode != AgentMode.BEHAVIOR_CLONING:
-                return 0.0, {}  # No action taken, no reward when switching mode
+            # TODO: Check collision by contact sensors
+            # if self.check_collision(current_joint_positions):
+            #     reward -= COLLISION_PENALTY  # Penalize for collision
         
         taken_act_vec = taken_act["eef_pose"] + [taken_act["suction_command"]]
         taken_act_vec[:3] = [taken_act_vec[i] - state["eef_pose"][i] for i in range(3)]

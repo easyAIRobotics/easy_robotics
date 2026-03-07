@@ -43,6 +43,13 @@ class DemoRLTrainer(Node):
             callback_group=self.set_mode_callback_group
         )
         
+        self.create_service(
+            srv_type=SetString,
+            srv_name=f"{self.agent_name}/command",
+            callback=self.set_agent_command_callback,
+            callback_group=self.set_mode_callback_group
+        )
+        
         self.get_logger().info(f"Demo RL Trainer node for agent {self.agent_name} has been started.")
         
     
@@ -51,6 +58,15 @@ class DemoRLTrainer(Node):
         self.agent.set_mode(request.data)
         response.success = True
         response.message = f"Agent {self.agent_name} mode set to {request.data}"
+        return response
+    
+    
+    def set_agent_command_callback(self, request, response):
+        self.get_logger().info(f"Received command for agent: {request.data}")
+        # Here you can implement handling of specific commands, e.g., start training, save model, etc.
+        self.agent.execute_command(request.data)
+        response.success = True
+        response.message = f"Command '{request.data}' executed for agent {self.agent_name}"
         return response
     
 

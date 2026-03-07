@@ -8,9 +8,6 @@ class SACAgent:
         self.node = node
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        self.node.declare_parameter(f"{agent_name}.model_path", "")
-        self.model_path = self.node.get_parameter(f"{agent_name}.model_path").get_parameter_value().string_value
-        
         self.encoder = None
         self.policy = None
         self.q1 = None
@@ -31,8 +28,9 @@ class SACAgent:
         raise NotImplementedError("SACAgent update method not implemented")
     
     
-    def load(self):
-        checkpoint = torch.load(self.model_path, map_location=self.device)
+    def load_model(self, model_folder):
+        model_path = os.path.join(model_folder, "sac_agent.pth")
+        checkpoint = torch.load(model_path, map_location=self.device)
 
         self.encoder.load_state_dict(checkpoint["encoder"])
         self.policy.load_state_dict(checkpoint["policy"])
@@ -42,7 +40,8 @@ class SACAgent:
         self.target_q2.load_state_dict(checkpoint["target_q2"])
         
     
-    def save(self):
+    def save_model(self, model_folder):
+        model_path = os.path.join(model_folder, "sac_agent.pth")
         torch.save({
             "encoder": self.encoder.state_dict(),
             "policy": self.policy.state_dict(),
@@ -50,4 +49,4 @@ class SACAgent:
             "q2": self.q2.state_dict(),
             "target_q1": self.target_q1.state_dict(),
             "target_q2": self.target_q2.state_dict(),
-        }, self.model_path)
+        }, model_path)

@@ -30,6 +30,10 @@ class ModeModule:
             self.handle_set_mode(data)
             return
         
+        if data.get("type") == "command":
+            self.handle_command(data)
+            return
+        
     
     def handle_agent_selected(self, data: dict):
         self.agent = data["agent"]
@@ -49,7 +53,7 @@ class ModeModule:
             return
         
         srv_name = self.agent + "/set_action"
-        if not self.agent in self.agent_service:
+        if not srv_name in self.agent_service:
             self._node.get_logger().info(
                 f"Agent {srv_name} set action service not found, creating new one"
             )
@@ -78,7 +82,7 @@ class ModeModule:
 
         srv_name = self.agent + "/set_mode"
 
-        if not self.agent in self.agent_service:
+        if not srv_name in self.agent_service:
             self._node.get_logger().info(
                 f"Agent {srv_name} set mode service not found, creating new one"
             )
@@ -94,6 +98,35 @@ class ModeModule:
         # self.agent_service[srv_name].wait_for_service(timeout=2.0)
         req = SetString.Request()
         req.data = mode
+        self.agent_service[srv_name].call_async(req)
+        
+        return
+    
+    
+    def handle_command(self, data: dict):
+        command = data["command"]
+        self._node.get_logger().info(
+            f"Command received: {command}"
+        )
+
+        srv_name = self.agent + "/command"
+
+        if not srv_name in self.agent_service:
+            self._node.get_logger().info(
+                f"Agent {srv_name} command service not found, creating new one"
+            )
+            self.agent_service[srv_name] = self._node.create_client(
+                srv_type=SetString,
+                srv_name=srv_name,
+            )
+        else:
+            self._node.get_logger().info(
+                f"Agent {srv_name} command service already exists"
+            )
+            
+        # self.agent_service[srv_name].wait_for_service(timeout=2.0)
+        req = SetString.Request()
+        req.data = command
         self.agent_service[srv_name].call_async(req)
         
         return

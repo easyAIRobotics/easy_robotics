@@ -9,7 +9,7 @@ import numpy as np
 
 from easy_training.sac.sac_agent import SACAgent
 
-MAX_STEP_DELTA = 0.05
+MAX_STEP_DELTA = 0.02
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -159,7 +159,7 @@ class SkillExecutionCriticNetwork(nn.Module):
         x = torch.cat([state, action], dim=-1)
         return self.q(x)
 
-STATE_DIM = 1024 + 3 + 7 + 1  # 1024 from encoder + 3 for skill ID + 7 for current joint positions + 1 for suction state
+STATE_DIM = 1024 + 3 + 13 + 1  # 1024 from encoder + 3 for skill ID + 7 for current eef and joint positions + 1 for suction state
 ACTION_DIM = 8
 
 import copy
@@ -190,12 +190,6 @@ class SkillExecutionSACAgent(SACAgent):
         self.target_q1 = copy.deepcopy(self.q1)
         self.target_q2 = copy.deepcopy(self.q2)
         
-        if os.path.exists(self.model_path):
-            self.load()
-            self.node.get_logger().info(f"Loaded model from {self.model_path}")
-        else:
-            self.node.get_logger().info(f"No model found at {self.model_path}, starting with new model")
-
         # Optimizers
         self.policy_optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
         self.q1_optimizer = torch.optim.Adam(self.q1.parameters(), lr=lr)
@@ -203,13 +197,21 @@ class SkillExecutionSACAgent(SACAgent):
         self.encoder_optimizer = torch.optim.Adam(self.encoder.parameters(), lr=lr)
         
         
-    def infer_action(self, state: tuple, deterministic=True):
-        rl_img, obs_skill, obs_robot = state
+    def infer_action(self, state: dict, deterministic=True):
+        rl_img, obs_skill, obs_robot = state["image"], state["skill"], state["robot_state"]
 
-        rl_img = rl_img.to(self.device)
-        obs_skill = obs_skill.to(self.device)
-        obs_robot = obs_robot.to(self.device)
+        rl_img = torch.from_numpy(rl_img).float().to(self.device)
+        obs_skill = torch.from_numpy(obs_skill).float().to(self.device)
+        obs_robot = torch.from_numpy(obs_robot).float().to(self.device)
 
+        # add batch dimension
+        rl_img = rl_img.unsqueeze(0)
+        obs_skill = obs_skill.unsqueeze(0)
+        obs_robot = obs_robot.unsqueeze(0)
+
+        # convert HWC → BCHW
+        rl_img = rl_img.permute(0, 3, 1, 2)
+        
         z = self.encoder(rl_img)
         state_vec = torch.cat([z, obs_skill, obs_robot], dim=-1)
 

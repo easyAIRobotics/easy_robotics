@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from enum import Enum
@@ -12,7 +13,21 @@ class AgentMode(Enum):
     SELF_LEARNING = 1
     BEHAVIOR_CLONING = 2
     PERFORMING = 3
+    
+    
+class ReplayBuffer:
+    def __init__(self, capacity, device="cuda"):
+        self.capacity = capacity
+        self.device = device
+        self.ptr = 0
+        self.buffer_size = 0
+    
+    def save_to_disk(self, file_path: str):
+        raise NotImplementedError("[ReplayBuffer] The save_to_disk method must be implemented by the subclass.")
         
+    def load_from_disk(self, file_path: str):
+        raise NotImplementedError("[ReplayBuffer] The load_from_disk method must be implemented by the subclass.")
+    
     
 class StateInterface:
     def __init__(self, node: Node):
@@ -82,7 +97,13 @@ class AgentInterface:
         
         self.rl_replay_buffer = None
         self.bc_replay_buffer = None
-
+        
+        self._node.declare_parameter("storage_path", "/tmp/easy_training_data")
+        self.storage_path = self._node.get_parameter("storage_path").get_parameter_value().string_value
+        
+        self.buffer_folder = self.storage_path + "/buffer_latest"
+        self.model_folder = self.storage_path + "/model_latest"
+            
         self._update_lock = threading.Lock()
         self._update_thread = None
         self._buffer_lock = threading.Lock()
@@ -91,7 +112,6 @@ class AgentInterface:
         while rclpy.ok():
             reward = 0.0
             if not self.state_interface.check_sanity():
-                print("[AgentInterface] State sanity check failed. Waiting for next state update...", flush=True)
                 self.action_interface.wait_for_next_state()
                 continue
                         
@@ -104,16 +124,16 @@ class AgentInterface:
                 print("[AgentInterface] self-learning mode, make an exploration action", flush=True)
                 action = self.infer_action(deterministic=False)
                 reward, transition = self.action_interface.perform(action, self.state_interface)
-                transition["reward"] = reward  # Use the reward from performing the policy action
                 if transition:
+                    transition["reward"] = reward  # Use the reward from performing the policy action
                     self.add_rl_transition(transition)
                 self.update()
                 
             if self.mode_ == AgentMode.BEHAVIOR_CLONING:
                 print("[AgentInterface] behavior cloning mode, perform no action", flush=True)
                 reward, transition = self.action_interface.perform([], self.state_interface)
-                transition["reward"] = reward  # Use the reward from performing the user action
                 if transition:
+                    transition["reward"] = reward  # Use the reward from performing the user action
                     self.add_bc_transition(transition)
                 self.update()
                 
@@ -142,6 +162,26 @@ class AgentInterface:
             
         self.action_interface.set_mode(self.mode_)
         self.state_interface.set_mode(self.mode_)
+        
+    
+    def execute_command(self, command: str):
+        print(f"[AgentInterface] Executing command: {command}", flush=True)
+        if command == "training/save_buffer":
+            stamped_buffer_folder = self.storage_path + f"/buffer_{int(time.time())}"
+            if not os.path.exists(stamped_buffer_folder):
+                os.makedirs(stamped_buffer_folder)
+            self.rl_replay_buffer.save_to_disk(stamped_buffer_folder + "/rl_replay_buffer.npz")
+            self.bc_replay_buffer.save_to_disk(stamped_buffer_folder + "/bc_replay_buffer.npz")
+            
+        elif command == "training/save_model":
+            if self.sac_agent is not None:
+                stamped_model_folder = self.storage_path + f"/model_{int(time.time())}"
+                if not os.path.exists(stamped_model_folder):
+                    os.makedirs(stamped_model_folder)
+                self.sac_agent.save_model(stamped_model_folder)
+        else:
+            print(f"[AgentInterface] Unknown command: {command}", flush=True)
+        print(f"[AgentInterface] Command execution completed: {command}", flush=True)
     
     
     def infer_action(self, deterministic=True) -> dict:

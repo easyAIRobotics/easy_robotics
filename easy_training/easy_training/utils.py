@@ -18,6 +18,10 @@ def transform_distance(pose1, pose2):
     return pos_dist + ori_dist
 
 
+def joint_distance(joint1, joint2):
+    """Calculate the distance between two joint configurations."""
+    return np.linalg.norm(np.array(joint1) - np.array(joint2))
+
 """
 Image pre processing utilities
 """

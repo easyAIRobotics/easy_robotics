@@ -30,6 +30,12 @@ SKILL_VOCAB = {
     "place": np.array([0.0, 1.0, 0.0], dtype=np.float32),
     "move": np.array([0.0, 0.0, 1.0], dtype=np.float32)
 }
+
+SUCCESS_PICK_REWARD = 1.0
+FAILED_PICK_PENALTY = -1.0
+
+SUCCESS_DROP_REWARD = 1.0
+FAILED_DROP_PENALTY = -10.0
         
 class SkillExecutionStateInterface(StateInterface):
     def __init__(self, node: Node):
@@ -277,10 +283,15 @@ class SkillExecutionStateInterface(StateInterface):
     
     
     def get_reward(self) -> float:
-        reward = 0.0
+        if self.action is None:
+            return 0.0
         
-        # Reward for closer distance to target (if target is defined in state)
-        return reward
+        if self.action == "pick":
+            return self._get_picking_reward()
+        elif self.action == "place":
+            return self._get_placing_reward()
+        
+        return 0.0  # Default reward for other actions
     
     
     def get_image(self):
@@ -290,5 +301,56 @@ class SkillExecutionStateInterface(StateInterface):
         return SKILL_VOCAB[self.action]
     
     def get_robot_state(self):
-        return np.array(self.state["eef_pose"] + [self.state["suction_state"]], dtype=np.float32)
+        joint_positions_cos = np.cos(self.state["joint_positions"])
+        return np.array(
+            self.state["eef_pose"] + 
+            [self.state["suction_state"]] + 
+            joint_positions_cos.tolist(), dtype=np.float32
+        )
         
+    def _get_picking_reward(self) -> float:
+        reward = 0.0
+        # Reward based on how close the end-effector is to the object (using point cloud mask)
+        if self.state["point_image"] is not None:
+            # Center of the masked points in the point image
+            mask = self.state["point_image"][..., 3]  # Mask channel
+            if np.sum(mask) > 0:
+                masked_points = self.state["point_image"][mask > 0][:, :3]  # Get XYZ of masked points
+                object_center = np.mean(masked_points, axis=0)
+                ee_position = np.array(self.state["eef_pose"][:3])
+                distance = np.linalg.norm(ee_position - object_center)
+                reward += max(0, 1.0 - distance)  # Closer gets higher reward
+            
+        # Additional reward for successful suction (if suction state is on and object is close)
+        if self.state["cmd_suction_state"]:
+            if self.state["suction_state"]:
+                reward += SUCCESS_PICK_REWARD  # Bonus for successful pick
+            else:
+                reward += FAILED_PICK_PENALTY  # Penalty for failed pick
+                
+        return reward
+    
+    def _get_placing_reward(self) -> float:
+        reward = 0.0
+        # Reward based on how close the end-effector is to the target place position
+        if self.state["point_image"] is not None:
+            # Center of the masked points in the point image
+            mask = self.state["point_image"][..., 3]  # Mask channel
+            if np.sum(mask) > 0:
+                masked_points = self.state["point_image"][mask > 0][:, :3]  # Get XYZ of masked points
+                object_center = np.mean(masked_points, axis=0)
+                ee_position = np.array(self.state["eef_pose"][:3])
+                diff_vector = ee_position - object_center
+                diff_vector[2] = 0.0  # Ignore height difference for placing reward
+                distance = np.linalg.norm(diff_vector)
+                reward += max(0, 1.0 - distance)  # Closer gets higher reward
+                
+                # Additional reward for successful release (Only when the gripper close to the place position and suction is off)
+                if not self.state["cmd_suction_state"]:
+                    if distance < 0.2:
+                        reward += SUCCESS_DROP_REWARD  # Bonus for successful place
+                    else:
+                        reward += FAILED_DROP_PENALTY  # Penalty placing in wrong position
+                        
+        return reward
+                        

@@ -1,7 +1,9 @@
 import torch
 import numpy as np
 
-class SkillExecutionReplayBuffer:
+from easy_training.agent_interfaces import ReplayBuffer
+
+class SkillExecutionReplayBuffer(ReplayBuffer):
     def __init__(
         self,
         capacity,
@@ -11,10 +13,7 @@ class SkillExecutionReplayBuffer:
         action_dim,
         device="cuda"
     ):
-        self.capacity = capacity
-        self.device = device
-        self.ptr = 0
-        self.buffer_size = 0
+        super().__init__(capacity, device)
 
         M, N, C = image_shape
 
@@ -103,3 +102,32 @@ class SkillExecutionReplayBuffer:
 
     def size(self):
         return self.buffer_size
+
+
+    def save_to_disk(self, file_path: str):
+        np.savez_compressed(
+            file_path,
+            images=self.images[:self.buffer_size],
+            skills=self.skills[:self.buffer_size],
+            robot_states=self.robot_states[:self.buffer_size],
+            actions=self.actions[:self.buffer_size],
+            rewards=self.rewards[:self.buffer_size],
+            next_images=self.next_images[:self.buffer_size],
+            next_skills=self.next_skills[:self.buffer_size],
+            next_robot_states=self.next_robot_states[:self.buffer_size],
+        )
+        
+        
+    def load_from_disk(self, file_path: str):
+        data = np.load(file_path)
+        self.images[:data['images'].shape[0]] = data['images']
+        self.skills[:data['skills'].shape[0]] = data['skills']
+        self.robot_states[:data['robot_states'].shape[0]] = data['robot_states']
+        self.actions[:data['actions'].shape[0]] = data['actions']
+        self.rewards[:data['rewards'].shape[0]] = data['rewards']
+        self.next_images[:data['next_images'].shape[0]] = data['next_images']
+        self.next_skills[:data['next_skills'].shape[0]] = data['next_skills']
+        self.next_robot_states[:data['next_robot_states'].shape[0]] = data['next_robot_states']
+        
+        self.buffer_size = data['images'].shape[0]
+        self.ptr = self.buffer_size % self.capacity

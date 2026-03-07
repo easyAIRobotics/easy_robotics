@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 
@@ -12,6 +13,8 @@ from rclpy.node import Node
 from easy_interfaces.srv import SetString
 
 import random
+
+BUFFER_CAPACITY = 1000
 
 
 class SkillExecutionAgentInterface(AgentInterface):
@@ -31,24 +34,37 @@ class SkillExecutionAgentInterface(AgentInterface):
         self.action_interface.set_action(self.action)
         
         self.rl_replay_buffer = SkillExecutionReplayBuffer(
-            capacity=100,
+            capacity=BUFFER_CAPACITY,
             image_shape=(120, 160, 4),
             skill_dim=3,
-            robot_state_dim=8,
+            robot_state_dim=14,
             action_dim=8,
             device="cuda"
         )
         
         self.bc_replay_buffer = SkillExecutionReplayBuffer(
-            capacity=100,
+            capacity=BUFFER_CAPACITY,
             image_shape=(120, 160, 4),
             skill_dim=3,
-            robot_state_dim=8,
+            robot_state_dim=14,
             action_dim=8,
             device="cuda"
         )
         
         self.sac_agent = SkillExecutionSACAgent(node)
+        
+        if os.path.exists(self.buffer_folder):
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loading replay buffers from {self.buffer_folder}...")
+            self.rl_replay_buffer.load_from_disk(self.buffer_folder + "/rl_replay_buffer.npz")
+            self.bc_replay_buffer.load_from_disk(self.buffer_folder + "/bc_replay_buffer.npz")
+        else:
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing replay buffer found at {self.buffer_folder}, starting with empty buffers.")
+            
+        if os.path.exists(self.model_folder):
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loading SAC agent model from {self.model_folder}...")
+            self.sac_agent.load_model(self.model_folder)
+        else:
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing model found at {self.model_folder}, starting with new agent.")
         
         
     def set_action_callback(self, request, response):
@@ -67,7 +83,7 @@ class SkillExecutionAgentInterface(AgentInterface):
             "skill": self.state_interface.get_skill(),
             "robot_state": self.state_interface.get_robot_state()
         }
-        return self.sac_agent.infer_action(state_dict, deterministic=deterministic)
+        return self.sac_agent.infer_action(state_dict, deterministic=deterministic).tolist()[0]
 
 
     def update(self):
@@ -102,7 +118,9 @@ class SkillExecutionAgentInterface(AgentInterface):
         
     def add_rl_transition(self, transition: dict):
         with self._buffer_lock:
-            print(f"[SkillExecutionAgentInterface] Adding RL transition to replay buffer", flush=True)
+            self._node.get_logger().info(
+                f"[SkillExecutionAgentInterface] Adding RL transition to replay buffer, action taken: {transition['action']}, reward: {transition['reward']}"
+            )
             self.rl_replay_buffer.add(
                 image=transition["image"],
                 skill=transition["skill"],
@@ -113,11 +131,13 @@ class SkillExecutionAgentInterface(AgentInterface):
                 next_skill=transition["next_skill"],
                 next_robot_state=transition["next_robot_state"]
             )
-            print(f"[SkillExecutionAgentInterface] RL Buffer size: {self.rl_replay_buffer.size()}", flush=True)
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] RL Buffer size: {self.rl_replay_buffer.size()}")
         
     def add_bc_transition(self, transition: dict):
         with self._buffer_lock:
-            print(f"[SkillExecutionAgentInterface] Adding BC transition to replay buffer", flush=True)
+            self._node.get_logger().info(
+                f"[SkillExecutionAgentInterface] Adding BC transition to replay buffer, action taken: {transition['action']}, reward: {transition['reward']}"
+            )
             self.bc_replay_buffer.add(
                 image=transition["image"],
                 skill=transition["skill"],
@@ -128,4 +148,4 @@ class SkillExecutionAgentInterface(AgentInterface):
                 next_skill=transition["next_skill"],
                 next_robot_state=transition["next_robot_state"]
             )
-            print(f"[SkillExecutionAgentInterface] BC Buffer size: {self.bc_replay_buffer.size()}", flush=True)
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] BC Buffer size: {self.bc_replay_buffer.size()}")
