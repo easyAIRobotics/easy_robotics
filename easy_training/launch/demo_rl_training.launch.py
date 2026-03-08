@@ -16,11 +16,19 @@ def generate_launch_description():
         ),
     ]
     
+    collision_monitor_config = os.path.join(
+        get_package_share_directory("easy_training"),
+        "config",
+        # "skill_execution",
+        "collision_monitor.yaml"
+    )
+    
     skill_execution_trainer_node = Node(
         package='easy_training',
         executable='demo_rl_trainer',
         name='skill_execution_trainer_node',
         parameters=[
+            collision_monitor_config,
             {"agent_name": "skill_execution"},
             {"agent_type": "SkillExecution"},
             {"storage_path": LaunchConfiguration('storage_path')},

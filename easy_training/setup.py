@@ -9,21 +9,18 @@ setup(
     version='0.0.0',
     packages=find_packages(exclude=['test']),
     data_files=[
-        # ROS2 index
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
 
-        # package.xml
         ('share/' + package_name, ['package.xml']),
 
-        # install launch files
+        # launch files (including subfolders)
         (os.path.join('share', package_name, 'launch'),
-            glob('launch/*.launch.py')),
+            glob('launch/**/*.launch.py', recursive=True)),
 
-        # install config files
+        # config files (including subfolders)
         (os.path.join('share', package_name, 'config'),
-            glob('config/*')),
-
+            glob('config/**/*.yaml', recursive=True)),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -32,9 +29,7 @@ setup(
     description='Robotics agent training',
     license='TODO: License declaration',
     extras_require={
-        'test': [
-            'pytest',
-        ],
+        'test': ['pytest'],
     },
     entry_points={
         'console_scripts': [

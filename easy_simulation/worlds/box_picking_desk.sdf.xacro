@@ -457,11 +457,6 @@
           </inertia>
         </inertial>
         <enable_wind>false</enable_wind>
-        <sensor name='sensor_contact' type='contact'>
-          <contact>
-            <collision>surface</collision>
-          </contact>
-        </sensor>
       </link>
       <pose>0.80000000000000004 0 0 0 0 1.5707900000000004</pose>
       <self_collide>false</self_collide>

@@ -16,7 +16,7 @@ from tf2_ros import TransformBroadcaster
 
 BASE_FRAME = "base_link"
 WINDOW_SIZE = 15   # must be odd
-DROPPING_HEIGHT = 0.4
+DROPPING_HEIGHT = 0.45
 
 class PlacingExpert:
     def __init__(self, node, tf2_buffer):
@@ -198,7 +198,7 @@ class PlacingExpert:
         point_base = self._camera_transform @ point_camera_h
         placing_point = point_base[:3]
         placing_point[2] += DROPPING_HEIGHT
-        picking_dir = placing_point - np.array([0.0, 0.0, placing_point[2] + DROPPING_HEIGHT])  # direction pointing downwards
+        picking_dir = placing_point - np.array([0.0, 0.0, placing_point[2] + DROPPING_HEIGHT / 2])  # direction pointing downwards
         picking_dir /= np.linalg.norm(picking_dir)
         # ---------------------------
         # 3) Build rotation matrix

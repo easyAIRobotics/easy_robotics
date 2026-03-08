@@ -14,7 +14,7 @@ from easy_interfaces.srv import SetString
 
 import random
 
-BUFFER_CAPACITY = 1000
+BUFFER_CAPACITY = 10000
 
 
 class SkillExecutionAgentInterface(AgentInterface):
@@ -106,7 +106,8 @@ class SkillExecutionAgentInterface(AgentInterface):
                 rl_batch = self.rl_replay_buffer.sample(64)
                 bc_batch = self.bc_replay_buffer.sample(64)
 
-            self.sac_agent.update(rl_batch, bc_batch)
+            losses = self.sac_agent.update(rl_batch, bc_batch)
+            self.loss_visualizer.update(losses)
 
         except Exception as e:
             print(f"[SkillExecutionAgentInterface] Update failed: {e}")

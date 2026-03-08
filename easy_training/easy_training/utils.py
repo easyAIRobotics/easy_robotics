@@ -40,3 +40,56 @@ def median_downsample(img, k):
     img = img.reshape(h2, k, w2, k)
 
     return np.median(img, axis=(1, 3))
+
+from torch.utils.tensorboard import SummaryWriter
+
+
+class LossVisualizer:
+
+    def __init__(self, log_dir="runs/rl_training", flush_secs=10):
+        """
+        TensorBoard loss logger
+
+        Parameters
+        ----------
+        log_dir : str
+            TensorBoard log directory
+        flush_secs : int
+            How often to flush logs to disk
+        """
+
+        self.writer = SummaryWriter(log_dir=log_dir, flush_secs=flush_secs)
+        self.step = 0
+
+    def update(self, losses: dict):
+        """
+        Log loss values to TensorBoard
+
+        Parameters
+        ----------
+        losses : dict
+            {
+                "q1_loss": float,
+                "q2_loss": float,
+                "sac_loss": float,
+                "bc_loss": float
+            }
+        """
+
+        self.step += 1
+
+        # log grouped losses
+        self.writer.add_scalars(
+            "loss",
+            {
+                "q1": losses.get("q1_loss", 0.0),
+                "q2": losses.get("q2_loss", 0.0),
+                "sac": losses.get("sac_loss", 0.0),
+                "bc": losses.get("bc_loss", 0.0),
+            },
+            self.step,
+        )
+
+    def close(self):
+        """Close TensorBoard writer"""
+        self.writer.close()

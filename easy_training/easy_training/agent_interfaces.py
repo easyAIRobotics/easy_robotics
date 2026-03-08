@@ -7,6 +7,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 import rclpy
 from rclpy.node import Node
 
+from easy_training.utils import LossVisualizer
+
 
 class AgentMode(Enum):
     IDLE = 0
@@ -97,6 +99,7 @@ class AgentInterface:
         
         self.rl_replay_buffer = None
         self.bc_replay_buffer = None
+        self.loss_visualizer = LossVisualizer()
         
         self._node.declare_parameter("storage_path", "/tmp/easy_training_data")
         self.storage_path = self._node.get_parameter("storage_path").get_parameter_value().string_value
@@ -202,3 +205,6 @@ class AgentInterface:
 
     def add_bc_transition(self, transition: dict):
         raise NotImplementedError("[AgentInterface] The add_bc_transition method must be implemented by the subclass.")
+    
+    def __del__(self):
+        self.loss_visualizer.close()

@@ -21,7 +21,7 @@
                     <color rgba="0.5 0.5 0.5 1.0" />
                 </material>
             </visual>
-            <collision name="gripper_collision">
+            <collision name="gripper">
                 <origin xyz="0 0 0.05" rpy="0 0 0" />
                 <geometry>
                     <mesh filename="file://$(find easy_simulation)/urdf/suction_gripper.stl"
@@ -43,13 +43,23 @@
             <origin xyz="0 0 0.05" rpy="0 0 0" />
         </joint>
 
-        <gazebo reference="$(arg prefix)suction_gripper_base">
-            <sensor name="$(arg prefix)suction_contact_sensor" type="contact">
-                <contact>
-                    <collision>gripper_collision</collision>
-                </contact>
-            </sensor>
-        </gazebo>
+        <xacro:macro name="contact_sensor" params="parent_link sensor_name collision_name">
+            <gazebo reference="${parent_link}">
+                <sensor name="${sensor_name}" type="contact">
+                    <contact>
+                        <collision>${collision_name}</collision>
+                    </contact>
+                </sensor>
+            </gazebo>
+        </xacro:macro>
+
+        <xacro:contact_sensor parent_link="$(arg prefix)suction_gripper_base" sensor_name="$(arg prefix)suction_contact_sensor" collision_name="gripper" />
+        <xacro:contact_sensor parent_link="$(arg prefix)base_link" sensor_name="$(arg prefix)base_link_contact_sensor" collision_name="base_link_collision" />
+        <xacro:contact_sensor parent_link="$(arg prefix)shoulder_link" sensor_name="$(arg prefix)shoulder_link_contact_sensor" collision_name="shoulder_link_collision" />
+        <xacro:contact_sensor parent_link="$(arg prefix)arm_link" sensor_name="$(arg prefix)arm_link_contact_sensor" collision_name="arm_link_collision" />
+        <xacro:contact_sensor parent_link="$(arg prefix)forearm_link" sensor_name="$(arg prefix)forearm_link_contact_sensor" collision_name="forearm_link_collision" />
+        <xacro:contact_sensor parent_link="$(arg prefix)lower_wrist_link" sensor_name="$(arg prefix)lower_wrist_link_contact_sensor" collision_name="lower_wrist_link_collision" />
+        <xacro:contact_sensor parent_link="$(arg prefix)upper_wrist_link" sensor_name="$(arg prefix)upper_wrist_link_contact_sensor" collision_name="upper_wrist_link_collision" />        
 
         <gazebo>
             <plugin

@@ -144,6 +144,14 @@ def generate_launch_description():
             "-name", "kinova_g3_lite_box_picker",
         ],
     )
+    
+    base_link_contact_topics = 'world/empty/model/kinova_g3_lite_box_picker/link/base_link/sensor/base_link_contact_sensor/contact'
+    arm_link_contact_topics = 'world/empty/model/kinova_g3_lite_box_picker/link/arm_link/sensor/arm_link_contact_sensor/contact'
+    # end_effector_link_contact_topics = 'world/empty/model/kinova_g3_lite_box_picker/link/end_effector_link/sensor/suction_contact_sensor/contact'
+    forearm_link_contact_topics = 'world/empty/model/kinova_g3_lite_box_picker/link/forearm_link/sensor/forearm_link_contact_sensor/contact'
+    lower_wrist_link_contact_topics = 'world/empty/model/kinova_g3_lite_box_picker/link/lower_wrist_link/sensor/lower_wrist_link_contact_sensor/contact'
+    shoulder_link_contact_topics = 'world/empty/model/kinova_g3_lite_box_picker/link/shoulder_link/sensor/shoulder_link_contact_sensor/contact'
+    upper_wrist_link_contact_topics = 'world/empty/model/kinova_g3_lite_box_picker/link/upper_wrist_link/sensor/upper_wrist_link_contact_sensor/contact'
 
     ros_gz_bridge = Node(
         package='ros_gz_bridge',
@@ -161,6 +169,13 @@ def generate_launch_description():
             f'/cmd_suction@std_msgs/msg/Bool]gz.msgs.Boolean',
             f'/suction_state@std_msgs/msg/Bool[gz.msgs.Boolean',
             f'/cmd_suction_state@std_msgs/msg/Bool[gz.msgs.Boolean',
+            f'/{base_link_contact_topics}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts',
+            f'/{arm_link_contact_topics}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts',
+            # f'/{end_effector_link_contact_topics}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts',
+            f'/{forearm_link_contact_topics}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts',
+            f'/{lower_wrist_link_contact_topics}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts',
+            f'/{shoulder_link_contact_topics}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts',
+            f'/{upper_wrist_link_contact_topics}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts',
         ],
     )
 

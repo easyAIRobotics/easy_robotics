@@ -1,0 +1,34 @@
+/**:
+  ros__parameters:
+    contact_sensors:
+      # - base_link_contact_sensor
+      - arm_link_contact_sensor
+      - forearm_link_contact_sensor
+      # - shoulder_link_contact_sensor
+      - lower_wrist_link_contact_sensor
+      - upper_wrist_link_contact_sensor
+
+    base_link_contact_sensor:
+      topic: /world/empty/model/kinova_g3_lite_box_picker/link/base_link/sensor/base_link_contact_sensor/contact
+      exceptions:
+        - Table::link::surface
+    
+    arm_link_contact_sensor:
+      topic: /world/empty/model/kinova_g3_lite_box_picker/link/arm_link/sensor/arm_link_contact_sensor/contact
+      exceptions: [""]
+
+    forearm_link_contact_sensor:
+      topic: /world/empty/model/kinova_g3_lite_box_picker/link/forearm_link/sensor/forearm_link_contact_sensor/contact
+      exceptions: [""]
+
+    shoulder_link_contact_sensor:
+      topic: /world/empty/model/kinova_g3_lite_box_picker/link/shoulder_link/sensor/shoulder_link_contact_sensor/contact
+      exceptions: [""]
+
+    lower_wrist_link_contact_sensor:
+      topic: /world/empty/model/kinova_g3_lite_box_picker/link/lower_wrist_link/sensor/lower_wrist_link_contact_sensor/contact
+      exceptions: [""]
+
+    upper_wrist_link_contact_sensor:
+      topic: /world/empty/model/kinova_g3_lite_box_picker/link/upper_wrist_link/sensor/upper_wrist_link_contact_sensor/contact
+      exceptions: [""]

@@ -2,6 +2,7 @@ import cv2
 import rclpy
 from rclpy.node import Node
 
+from easy_training.skill_execution.collision_monitor import CollisionMonitor
 from easy_training.agent_interfaces import ActionInterface, AgentMode, StateInterface
 from easy_training.utils import *
 
@@ -124,6 +125,9 @@ class SkillExecutionStateInterface(StateInterface):
             1,
             callback_group=self.state_interface_callback_group
         )
+        
+        # Collision monitor
+        self.collision_monitor = CollisionMonitor(node)
         
     
     def check_sanity(self) -> bool:
@@ -307,6 +311,9 @@ class SkillExecutionStateInterface(StateInterface):
             [self.state["suction_state"]] + 
             joint_positions_cos.tolist(), dtype=np.float32
         )
+        
+    def check_collision(self) -> bool:
+        return self.collision_monitor.check_collisions()
         
     def _get_picking_reward(self) -> float:
         reward = 0.0

@@ -16,7 +16,7 @@ from controller_manager_msgs.srv import SwitchController
 import copy
 
 IK_FAILURE_PENALTY = 1.0
-COLLISION_PENALTY = 1.0
+COLLISION_PENALTY = 5.0
 EEF_MOVEMENT_PENALTY_SCALE = 1.0
 
 MOVEGROUP_NAME = 'suction_tip'
@@ -119,7 +119,8 @@ class SkillExecutionActionInterface(ActionInterface):
             joint_positions = self.solve_IK(act["eef_pose"], state["joint_positions"])
             if not joint_positions:
                 reward -= IK_FAILURE_PENALTY  # Penalize for IK failure
-                
+            
+            # TODO: Verify collision before executing action
             if joint_positions:
                 # Feasible for execution
                 taken_act = act
@@ -135,7 +136,8 @@ class SkillExecutionActionInterface(ActionInterface):
                 }
             
             self.wait_for_next_state()
-            if joint_positions and self.check_collision(joint_positions):
+            if state_interface.check_collision():
+                self._node.get_logger().warn(f"[SkillExecutionActionInterface] Penalize collision action in active mode")
                 reward -= COLLISION_PENALTY  # Penalize for collision
         
         if not act_vec:
@@ -156,9 +158,9 @@ class SkillExecutionActionInterface(ActionInterface):
                     return 0.0, {}  # No action taken, skipping
                             
             
-            # TODO: Check collision by contact sensors
-            # if self.check_collision(current_joint_positions):
-            #     reward -= COLLISION_PENALTY  # Penalize for collision
+                if state_interface.check_collision():
+                    self._node.get_logger().warn(f"[SkillExecutionActionInterface] Penalize collision action in passive mode")
+                    reward -= COLLISION_PENALTY  # Penalize for collision
         
         taken_act_vec = taken_act["eef_pose"] + [taken_act["suction_command"]]
         taken_act_vec[:3] = [taken_act_vec[i] - state["eef_pose"][i] for i in range(3)]

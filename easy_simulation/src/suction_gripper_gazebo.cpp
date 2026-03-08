@@ -10,7 +10,7 @@ void SuctionGripperPlugin::Configure(
 {
   // Suction link
   auto matches = gz::sim::entitiesFromScopedName(
-      "end_effector_link_fixed_joint_lump__gripper_collision_collision",
+      "end_effector_link_fixed_joint_lump__gripper_collision",
       ecm);
 
   if (!matches.empty())
