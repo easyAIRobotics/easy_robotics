@@ -3,7 +3,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 
 from std_msgs.msg import Bool
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, PoseStamped
 from easy_interfaces.msg import Pixel
 from std_srvs.srv import SetBool
 from easy_interfaces.srv import ExecuteGoal
@@ -12,9 +12,10 @@ import numpy as np
 import time
 import tf_transformations
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
-from tf2_ros import TransformBroadcaster
+from tf2_ros import TransformBroadcaster, Buffer, TransformListener
 
 BASE_FRAME = "base_link"
+EEF_FRAME = "virtual_suction_tip"
 WINDOW_SIZE = 15   # must be odd
 DROPPING_HEIGHT = 0.45
 
@@ -23,6 +24,7 @@ class PlacingExpert:
         self._node = node
         self._node.get_logger().info("PlacingExpert initialized")
         self._tf2_buffer = tf2_buffer
+        self._tf_listener = TransformListener(self._tf2_buffer, self._node)
         
         self.depth_image = None
         self.camera_info = None
@@ -104,30 +106,27 @@ class PlacingExpert:
                 self._node.get_logger().info(
                     f"Computed placing pose: position={placing_point}, orientation={placing_quat}"
                 )
-
-                t = TransformStamped()
-
-                t.header.stamp = self._node.get_clock().now().to_msg()
-                t.header.frame_id = BASE_FRAME
-                t.child_frame_id = "placing_pose"
-
-                # Translation
-                t.transform.translation.x = float(placing_point[0])
-                t.transform.translation.y = float(placing_point[1])
-                t.transform.translation.z = float(placing_point[2])
-
-                # Rotation (quaternion [x, y, z, w])
-                t.transform.rotation.x = float(placing_quat[0])
-                t.transform.rotation.y = float(placing_quat[1])
-                t.transform.rotation.z = float(placing_quat[2])
-                t.transform.rotation.w = float(placing_quat[3])
-
-                self._tf_broadcaster.sendTransform(t)
+                
+                current_eef_transform = self._lookup_eef_transform()
+                current_eef_transform.pose.position.z += 0.05  # lift up a bit to avoid collision during placing
+                current_eef_transform.pose.position.x = max(0.3, current_eef_transform.pose.position.x - 0.05)  # move back a bit
                 
                 goal_req = ExecuteGoal.Request()
                 goal_req.speed_factor = 0.2
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
+                goal_req.goal.pose = current_eef_transform.pose
+                
+                while not self.execute_goal_client.wait_for_service(timeout_sec=1.0):
+                    self._node.get_logger().info("Waiting for execute_goal service...")
+                    
+                future = self.execute_goal_client.call_async(goal_req)
+                while not future.done():
+                    time.sleep(0.001)
+                if future.result() is None or not future.result().success:
+                    self._running = False
+                    return
+                
                 goal_req.goal.pose.position.x = float(placing_point[0])
                 goal_req.goal.pose.position.y = float(placing_point[1])
                 goal_req.goal.pose.position.z = float(placing_point[2])
@@ -136,22 +135,38 @@ class PlacingExpert:
                 goal_req.goal.pose.orientation.z = float(placing_quat[2])
                 goal_req.goal.pose.orientation.w = float(placing_quat[3])
                 
-                while not self.execute_goal_client.wait_for_service(timeout_sec=1.0):
-                    self._node.get_logger().info("Waiting for execute_goal service...")
-                    
                 future = self.execute_goal_client.call_async(goal_req)
                 while not future.done():
                     time.sleep(0.001)
-                if future.result() is not None:
-                    self._node.get_logger().info(f"ExecuteGoal response: {future.result()}")
-                    
-                # Deactivate suction cup
-                if future.result() is not None and future.result().success:
-                    self.suction_cmd_pub.publish(Bool(data=False))
+                if future.result() is None or not future.result().success:
+                    self._running = False
+                    return
+
+                self.suction_cmd_pub.publish(Bool(data=False))
             else:
                 self._node.get_logger().warn("Failed to compute placing pose")
         
         self._running = False
+        
+    def _lookup_eef_transform(self):
+        try:
+            eef_transform = self._tf2_buffer.lookup_transform(
+                BASE_FRAME,
+                EEF_FRAME,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=1)
+            )
+            
+            eef_pose = PoseStamped()
+            eef_pose.header = eef_transform.header
+            eef_pose.pose.position.x = eef_transform.transform.translation.x
+            eef_pose.pose.position.y = eef_transform.transform.translation.y
+            eef_pose.pose.position.z = eef_transform.transform.translation.z
+            eef_pose.pose.orientation = eef_transform.transform.rotation
+            return eef_pose
+        except (LookupException, ConnectivityException, ExtrapolationException):
+            self._node.get_logger().warn("EEF transform not found")
+            return None
             
     def _compute_placing_pose(self, pixel):
         """Compute the 3D placing point and orientation from the selected pixel."""

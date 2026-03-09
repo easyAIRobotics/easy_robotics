@@ -79,16 +79,10 @@ class LossVisualizer:
         self.step += 1
 
         # log grouped losses
-        self.writer.add_scalars(
-            "loss",
-            {
-                "q1": losses.get("q1_loss", 0.0),
-                "q2": losses.get("q2_loss", 0.0),
-                "sac": losses.get("sac_loss", 0.0),
-                "bc": losses.get("bc_loss", 0.0),
-            },
-            self.step,
-        )
+        self.writer.add_scalar("loss/q1_loss", losses.get("q1_loss", 0.0), self.step)
+        self.writer.add_scalar("loss/q2_loss", losses.get("q2_loss", 0.0), self.step)
+        self.writer.add_scalar("loss/sac_loss", losses.get("sac_loss", 0.0), self.step)
+        self.writer.add_scalar("loss/bc_loss", losses.get("bc_loss", 0.0), self.step)
 
     def close(self):
         """Close TensorBoard writer"""

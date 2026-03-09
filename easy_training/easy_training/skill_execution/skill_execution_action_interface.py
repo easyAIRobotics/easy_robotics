@@ -58,6 +58,16 @@ class SkillExecutionActionInterface(ActionInterface):
             self.enable_picking_expert_client.call_async(enable_expert_req)
         elif self.action == "place":
             self.enable_placing_expert_client.call_async(enable_expert_req)
+            
+        # Disable all other experts to avoid conflicts
+        if self.action != "pick":
+            disable_picking_req = SetBool.Request()
+            disable_picking_req.data = False
+            self.enable_picking_expert_client.call_async(disable_picking_req)
+        if self.action != "place":
+            disable_placing_req = SetBool.Request()
+            disable_placing_req.data = False
+            self.enable_placing_expert_client.call_async(disable_placing_req)
         
         
     def set_mode(self, mode: AgentMode):

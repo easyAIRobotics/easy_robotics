@@ -81,8 +81,6 @@ class SkillExecutionPolicyNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim=256):
         super().__init__()
 
-        self.delta_pos_max = MAX_STEP_DELTA
-
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -100,7 +98,7 @@ class SkillExecutionPolicyNetwork(nn.Module):
         self.log_std = nn.Linear(hidden_dim, action_dim)
 
         self.LOG_STD_MIN = -10
-        self.LOG_STD_MAX = 2
+        self.LOG_STD_MAX = 1
 
     def forward(self, state):
         h = self.net(state)
@@ -154,6 +152,23 @@ class SkillExecutionCriticNetwork(nn.Module):
 
             nn.Linear(hidden_dim, 1)
         )
+        
+        self._init_params()
+
+    def _init_params(self):
+        for m in self.modules():
+
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
+                nn.init.zeros_(m.bias)
+
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+
+        # Small initialization for final Q layer
+        nn.init.uniform_(self.q[-1].weight, -1e-3, 1e-3)
+        nn.init.uniform_(self.q[-1].bias, -1e-3, 1e-3)
 
     def forward(self, state, action):
         x = torch.cat([state, action], dim=-1)
@@ -172,7 +187,7 @@ class SkillExecutionSACAgent(SACAgent):
         gamma=0.99,
         tau=0.005,
         alpha=0.1,
-        bc_weight=0.5,
+        bc_weight=10.0,
         lr=3e-4
     ):
         super().__init__(node, "skill_execution_sac_agent")
@@ -180,6 +195,10 @@ class SkillExecutionSACAgent(SACAgent):
         self.tau = tau
         self.alpha = alpha
         self.bc_weight = bc_weight
+        
+        # Delta scale
+        self._node.declare_parameter("max_step_delta", MAX_STEP_DELTA)
+        self.delta_pos_max = self._node.get_parameter("max_step_delta").get_parameter_value().double_value
 
         # Networks
         self.encoder = MaskedPointCloudEncoder().to(self.device)
@@ -228,7 +247,7 @@ class SkillExecutionSACAgent(SACAgent):
         # -----------------------------
 
         # delta position scaling
-        delta_pos = action[..., :3] * MAX_STEP_DELTA
+        delta_pos = action[..., :3] * self.delta_pos_max
 
         # quaternion normalization
         quat = action[..., 3:7]
@@ -311,6 +330,7 @@ class SkillExecutionSACAgent(SACAgent):
         skill = torch.cat(skills, dim=0)
         robot = torch.cat(robots, dim=0)
         actions = torch.cat(actions_list, dim=0)
+        actions[:, :3] = torch.clamp(actions[:, :3] / self.delta_pos_max, -1.0, 1.0)
         rewards = torch.cat(rewards_list, dim=0)
 
         next_img = torch.cat(next_imgs, dim=0)
@@ -369,6 +389,7 @@ class SkillExecutionSACAgent(SACAgent):
         if bc_samples is not None:
             bc_batch_size = bc_img.shape[0]
             bc_state = policy_state[-bc_batch_size:]  # last part belongs to BC
+            bc_actions = actions[-bc_batch_size:]
             bc_actions_pred, _ = self.policy.sample(bc_state)
             bc_loss = F.mse_loss(bc_actions_pred, bc_actions)
         else:

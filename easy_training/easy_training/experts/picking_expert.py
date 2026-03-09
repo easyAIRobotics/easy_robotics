@@ -96,57 +96,47 @@ class PickingExpert:
         )
         
         if self._enable and self.depth_image is not None and self.camera_info is not None:
-            picking_point, picking_quat = self._compute_picking_pose(point)
+            pre_picking_point,picking_point, picking_quat = self._compute_picking_pose(point)
 
             if picking_point is not None and picking_quat is not None:
 
                 self._node.get_logger().info(
                     f"Computed picking pose: position={picking_point}, orientation={picking_quat}"
                 )
-
-                t = TransformStamped()
-
-                t.header.stamp = self._node.get_clock().now().to_msg()
-                t.header.frame_id = BASE_FRAME
-                t.child_frame_id = "picking_pose"
-
-                # Translation
-                t.transform.translation.x = float(picking_point[0])
-                t.transform.translation.y = float(picking_point[1])
-                t.transform.translation.z = float(picking_point[2])
-
-                # Rotation (quaternion [x, y, z, w])
-                t.transform.rotation.x = float(picking_quat[0])
-                t.transform.rotation.y = float(picking_quat[1])
-                t.transform.rotation.z = float(picking_quat[2])
-                t.transform.rotation.w = float(picking_quat[3])
-
-                self._tf_broadcaster.sendTransform(t)
                 
                 goal_req = ExecuteGoal.Request()
                 goal_req.speed_factor = 0.2
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
-                goal_req.goal.pose.position.x = float(picking_point[0])
-                goal_req.goal.pose.position.y = float(picking_point[1])
-                goal_req.goal.pose.position.z = float(picking_point[2])
+                goal_req.goal.pose.position.x = float(pre_picking_point[0])
+                goal_req.goal.pose.position.y = float(pre_picking_point[1])
+                goal_req.goal.pose.position.z = float(pre_picking_point[2])
                 goal_req.goal.pose.orientation.x = float(picking_quat[0])
                 goal_req.goal.pose.orientation.y = float(picking_quat[1])
                 goal_req.goal.pose.orientation.z = float(picking_quat[2])
                 goal_req.goal.pose.orientation.w = float(picking_quat[3])
-                
-                while not self.execute_goal_client.wait_for_service(timeout_sec=1.0):
-                    self._node.get_logger().info("Waiting for execute_goal service...")
                     
                 future = self.execute_goal_client.call_async(goal_req)
                 while not future.done():
                     time.sleep(0.001)
-                if future.result() is not None:
-                    self._node.get_logger().info(f"ExecuteGoal response: {future.result()}")
                     
-                # Activate suction cup if pose execution was successful
-                if future.result() is not None and future.result().success:
-                    self.suction_cmd_pub.publish(Bool(data=True))
+                if future.result() is None or not future.result().success:
+                    self._running = False
+                    return
+                
+                goal_req.goal.pose.position.x = float(picking_point[0])
+                goal_req.goal.pose.position.y = float(picking_point[1])
+                goal_req.goal.pose.position.z = float(picking_point[2])
+                
+                future = self.execute_goal_client.call_async(goal_req)
+                while not future.done():
+                    time.sleep(0.001)
+                    
+                if future.result() is None or not future.result().success:
+                    self._running = False
+                    return
+
+                self.suction_cmd_pub.publish(Bool(data=True))
 
             else:
                 self._node.get_logger().warn("Failed to compute picking pose")
@@ -239,8 +229,9 @@ class PickingExpert:
         # ---------------------------
         picking_quat = tf_transformations.quaternion_from_matrix(T)
         picking_point += 0.01 * normal_base  # offset along normal for better grasping
+        pre_picking_point = picking_point - 0.01 * normal_base  # pre-picking point for approach
 
-        return picking_point, picking_quat
+        return pre_picking_point, picking_point, picking_quat
     
 
     def _lookup_depth_transform(self):

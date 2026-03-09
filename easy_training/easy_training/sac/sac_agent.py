@@ -5,7 +5,7 @@ import torch
 
 class SACAgent:
     def __init__(self, node: Node, agent_name: str):
-        self.node = node
+        self._node = node
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         self.encoder = None

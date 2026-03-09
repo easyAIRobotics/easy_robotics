@@ -57,6 +57,7 @@ class SkillExecutionAgentInterface(AgentInterface):
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loading replay buffers from {self.buffer_folder}...")
             self.rl_replay_buffer.load_from_disk(self.buffer_folder + "/rl_replay_buffer.npz")
             self.bc_replay_buffer.load_from_disk(self.buffer_folder + "/bc_replay_buffer.npz")
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loaded {self.rl_replay_buffer.size()} RL samples and {self.bc_replay_buffer.size()} BC samples from disk.")
         else:
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing replay buffer found at {self.buffer_folder}, starting with empty buffers.")
             
