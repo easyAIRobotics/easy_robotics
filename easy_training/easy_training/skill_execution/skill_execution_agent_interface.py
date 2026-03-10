@@ -105,7 +105,7 @@ class SkillExecutionAgentInterface(AgentInterface):
         try:
             with self._buffer_lock:
                 rl_batch = self.rl_replay_buffer.sample(64)
-                bc_batch = self.bc_replay_buffer.sample(64)
+                bc_batch = self.bc_replay_buffer.sample(128)
 
             losses = self.sac_agent.update(rl_batch, bc_batch)
             self.loss_visualizer.update(losses)

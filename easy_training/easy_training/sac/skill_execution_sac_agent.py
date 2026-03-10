@@ -184,11 +184,11 @@ from rclpy.node import Node
 class SkillExecutionSACAgent(SACAgent):
     def __init__(
         self, node: Node,
-        gamma=0.99,
+        gamma=0.95,
         tau=0.005,
         alpha=0.1,
-        bc_weight=10.0,
-        lr=3e-4
+        bc_weight=50.0,
+        lr=1e-3
     ):
         super().__init__(node, "skill_execution_sac_agent")
         self.gamma = gamma
@@ -400,6 +400,8 @@ class SkillExecutionSACAgent(SACAgent):
         self.policy_optimizer.zero_grad()
         total_policy_loss.backward()
         self.policy_optimizer.step()
+        
+        # print(f"[SkillExecutionSACAgent] bc_actions: {bc_actions[:5].cpu().numpy()} vesus predict: {bc_actions_pred[:5].cpu().detach().numpy()}", flush=True)
 
         ########################################
         # -------- Soft Update -----------------
