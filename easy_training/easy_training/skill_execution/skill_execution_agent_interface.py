@@ -14,7 +14,9 @@ from easy_interfaces.srv import SetString
 
 import random
 
-BUFFER_CAPACITY = 10000
+RL_BUFFER_CAPACITY = 1000
+BC_BUFFER_CAPACITY = 50000
+VAL_BUFFER_CAPACITY = 2000
 
 
 class SkillExecutionAgentInterface(AgentInterface):
@@ -34,20 +36,29 @@ class SkillExecutionAgentInterface(AgentInterface):
         self.action_interface.set_action(self.action)
         
         self.rl_replay_buffer = SkillExecutionReplayBuffer(
-            capacity=BUFFER_CAPACITY,
+            capacity=RL_BUFFER_CAPACITY,
             image_shape=(120, 160, 4),
             skill_dim=3,
-            robot_state_dim=14,
-            action_dim=8,
+            robot_state_dim=16,
+            action_dim=7,
             device="cuda"
         )
         
         self.bc_replay_buffer = SkillExecutionReplayBuffer(
-            capacity=BUFFER_CAPACITY,
+            capacity=BC_BUFFER_CAPACITY,
             image_shape=(120, 160, 4),
             skill_dim=3,
-            robot_state_dim=14,
-            action_dim=8,
+            robot_state_dim=16,
+            action_dim=7,
+            device="cuda"
+        )
+        
+        self.validate_buffer = SkillExecutionReplayBuffer(
+            capacity=VAL_BUFFER_CAPACITY,
+            image_shape=(120, 160, 4),
+            skill_dim=3,
+            robot_state_dim=16,
+            action_dim=7,
             device="cuda"
         )
         
@@ -60,6 +71,13 @@ class SkillExecutionAgentInterface(AgentInterface):
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loaded {self.rl_replay_buffer.size()} RL samples and {self.bc_replay_buffer.size()} BC samples from disk.")
         else:
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing replay buffer found at {self.buffer_folder}, starting with empty buffers.")
+        
+        if os.path.exists(self.validate_folder):
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loading validation buffer from {self.validate_folder}...")
+            self.validate_buffer.load_from_disk(self.validate_folder + "/bc_replay_buffer.npz")
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loaded {self.validate_buffer.size()} validation samples from disk.")
+        else:
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing validation buffer found at {self.validate_folder}, starting with empty validation buffer.")
             
         if os.path.exists(self.model_folder):
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loading SAC agent model from {self.model_folder}...")
@@ -84,13 +102,18 @@ class SkillExecutionAgentInterface(AgentInterface):
             "skill": self.state_interface.get_skill(),
             "robot_state": self.state_interface.get_robot_state()
         }
-        return self.sac_agent.infer_action(state_dict, deterministic=deterministic).tolist()[0]
+        action = self.sac_agent.infer_action(state_dict, deterministic)
+        
+        if action is not None:
+            action = action.tolist()[0]
+        else:
+            action = []
 
+        return action
 
     def update(self):
         # Return if an update is already in progress
         if self._update_thread is not None and self._update_thread.is_alive():
-            print("[SkillExecutionAgentInterface] Update already in progress, skipping new update call", flush=True)
             return
         
         with self._update_lock:
@@ -101,22 +124,21 @@ class SkillExecutionAgentInterface(AgentInterface):
             self._update_thread.start()
 
     def _update_worker(self):
-        print("[SkillExecutionAgentInterface] Updating agent based on replay buffers", flush=True)
         try:
             with self._buffer_lock:
                 rl_batch = self.rl_replay_buffer.sample(64)
-                bc_batch = self.bc_replay_buffer.sample(128)
+                bc_batch = self.bc_replay_buffer.sample(256)
+                val_batch = self.validate_buffer.sample(128)
 
-            losses = self.sac_agent.update(rl_batch, bc_batch)
+            losses = self.sac_agent.update(rl_batch, bc_batch, val_batch)
             self.loss_visualizer.update(losses)
 
         except Exception as e:
-            print(f"[SkillExecutionAgentInterface] Update failed: {e}")
+            self._node.get_logger().error(f"[SkillExecutionAgentInterface] Update failed: {e}")
         
         
     def reset(self):
-        print(f"[SkillExecutionAgentInterface] Resetting agent state", flush=True)
-        
+        self._node.get_logger().info(f"[SkillExecutionAgentInterface] Resetting agent state")
         
     def add_rl_transition(self, transition: dict):
         with self._buffer_lock:
@@ -129,9 +151,10 @@ class SkillExecutionAgentInterface(AgentInterface):
                 robot_state=transition["robot_state"],
                 action=transition["action"],
                 reward=transition["reward"],
+                done=transition["done"],
                 next_image=transition["next_image"],
                 next_skill=transition["next_skill"],
-                next_robot_state=transition["next_robot_state"]
+                next_robot_state=transition["next_robot_state"],
             )
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] RL Buffer size: {self.rl_replay_buffer.size()}")
         
@@ -146,8 +169,9 @@ class SkillExecutionAgentInterface(AgentInterface):
                 robot_state=transition["robot_state"],
                 action=transition["action"],
                 reward=transition["reward"],
+                done=transition["done"],
                 next_image=transition["next_image"],
                 next_skill=transition["next_skill"],
-                next_robot_state=transition["next_robot_state"]
+                next_robot_state=transition["next_robot_state"],
             )
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] BC Buffer size: {self.bc_replay_buffer.size()}")

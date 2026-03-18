@@ -109,8 +109,9 @@ class PlacingExpert:
                 
                 current_eef_transform = self._lookup_eef_transform()
                 current_eef_transform.pose.position.z += 0.05  # lift up a bit to avoid collision during placing
-                current_eef_transform.pose.position.x = max(0.3, current_eef_transform.pose.position.x - 0.05)  # move back a bit
-                
+                if current_eef_transform.pose.position.x > 0.3:
+                    current_eef_transform.pose.position.x -= 0.05
+                                    
                 goal_req = ExecuteGoal.Request()
                 goal_req.speed_factor = 0.2
                 goal_req.goal.header.frame_id = BASE_FRAME
@@ -212,7 +213,7 @@ class PlacingExpert:
         point_camera_h = np.append(placing_point_camera, 1.0)
         point_base = self._camera_transform @ point_camera_h
         placing_point = point_base[:3]
-        placing_point[2] += DROPPING_HEIGHT
+        placing_point[2] = DROPPING_HEIGHT
         picking_dir = placing_point - np.array([0.0, 0.0, placing_point[2] + DROPPING_HEIGHT / 2])  # direction pointing downwards
         picking_dir /= np.linalg.norm(picking_dir)
         # ---------------------------

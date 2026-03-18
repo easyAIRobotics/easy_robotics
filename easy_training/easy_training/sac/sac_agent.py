@@ -10,34 +10,52 @@ class SACAgent:
         
         self.encoder = None
         self.policy = None
-        self.q1 = None
-        self.q2 = None
-        self.target_q1 = None
-        self.target_q2 = None
+        self.q = None
+        self.target_q = None
         
         self.policy_optimizer = None
-        self.q1_optimizer = None
-        self.q2_optimizer = None
+        self.q_optimizer = None
         self.encoder_optimizer = None
     
     
     def infer_action(self, state, deterministic=True):
         raise NotImplementedError("SACAgent infer_action method not implemented")
     
-    def update(self, rl_samples, bc_samples):
+    def update(self, rl_samples, bc_samples, val_samples):
         raise NotImplementedError("SACAgent update method not implemented")
     
     
     def load_model(self, model_folder):
         model_path = os.path.join(model_folder, "sac_agent.pth")
         checkpoint = torch.load(model_path, map_location=self.device)
-
-        self.encoder.load_state_dict(checkpoint["encoder"])
-        self.policy.load_state_dict(checkpoint["policy"])
-        self.q1.load_state_dict(checkpoint["q1"])
-        self.q2.load_state_dict(checkpoint["q2"])
-        self.target_q1.load_state_dict(checkpoint["target_q1"])
-        self.target_q2.load_state_dict(checkpoint["target_q2"])
+        try:
+            self.encoder.load_state_dict(checkpoint["encoder"])
+        except Exception:
+            print("[SACAgent] Warning: Failed to load encoder state dict")
+        try:
+            self.policy.load_state_dict(checkpoint["policy"])
+        except Exception:
+            print("[SACAgent] Warning: Failed to load policy state dict")
+        try:
+            self.q.load_state_dict(checkpoint["q"])
+        except Exception:
+            print("[SACAgent] Warning: Failed to load q state dict")
+        try:
+            self.target_q.load_state_dict(checkpoint["target_q"])
+        except Exception:
+            print("[SACAgent] Warning: Failed to load target_q state dict")
+        try:
+            self.policy_optimizer.load_state_dict(checkpoint["policy_optimizer"])
+        except Exception:
+            print("[SACAgent] Warning: Failed to load policy optimizer state dict")
+        try:
+            self.q_optimizer.load_state_dict(checkpoint["q_optimizer"])
+        except Exception:
+            print("[SACAgent] Warning: Failed to load q optimizer state dict")
+        try:
+            self.encoder_optimizer.load_state_dict(checkpoint["encoder_optimizer"])
+        except Exception:
+            print("[SACAgent] Warning: Failed to load encoder optimizer state dict")
         
     
     def save_model(self, model_folder):
@@ -45,8 +63,9 @@ class SACAgent:
         torch.save({
             "encoder": self.encoder.state_dict(),
             "policy": self.policy.state_dict(),
-            "q1": self.q1.state_dict(),
-            "q2": self.q2.state_dict(),
-            "target_q1": self.target_q1.state_dict(),
-            "target_q2": self.target_q2.state_dict(),
+            "q": self.q.state_dict(),
+            "target_q": self.target_q.state_dict(),
+            "policy_optimizer": self.policy_optimizer.state_dict(),
+            "q_optimizer": self.q_optimizer.state_dict(),
+            "encoder_optimizer": self.encoder_optimizer.state_dict(),
         }, model_path)

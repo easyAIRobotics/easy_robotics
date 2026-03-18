@@ -33,7 +33,7 @@ SKILL_VOCAB = {
 }
 
 SUCCESS_PICK_REWARD = 1.0
-FAILED_PICK_PENALTY = -1.0
+FAILED_PICK_PENALTY = 0.0
 
 SUCCESS_DROP_REWARD = 1.0
 FAILED_DROP_PENALTY = -10.0
@@ -42,7 +42,7 @@ class SkillExecutionStateInterface(StateInterface):
     def __init__(self, node: Node):
         super().__init__(node)
         
-        self.state = {}
+        self.state = {"done": 0.0}
         self.depth_transform_mtx = None
         
         # Points publisher (in debug mode)
@@ -55,7 +55,7 @@ class SkillExecutionStateInterface(StateInterface):
         # Joint state subscription
         self.state["joint_positions"] = [0.0] * 6
         def _joint_state_callback(msg: JointState):
-            self.state["joint_positions"] = msg.position[:6]  # 6-DOF robot arm
+            self.state["joint_positions"] = list(msg.position[:6])  # 6-DOF robot arm
         self.joint_state_sub = self._node.create_subscription(
             JointState,
             "joint_states",
@@ -70,9 +70,9 @@ class SkillExecutionStateInterface(StateInterface):
         self.tf_timer = self._node.create_timer(0.01, self.tf_timer_callback, callback_group=self.state_interface_callback_group)
         
         # Gripper state subscription
-        self.state["suction_state"] = 0.0
+        self.state["suction_state"] = -1.0
         def _suction_state_callback(msg: Bool):
-            self.state["suction_state"] = 0.0 if not msg.data else 1.0
+            self.state["suction_state"] = -1.0 if not msg.data else 1.0
         self.suction_state_sub = self._node.create_subscription(
             Bool,
             "suction_state",
@@ -81,9 +81,9 @@ class SkillExecutionStateInterface(StateInterface):
             callback_group=self.state_interface_callback_group
         )
         
-        self.state["cmd_suction_state"] = 0.0
+        self.state["cmd_suction_state"] = -1.0
         def _cmd_suction_state_callback(msg: Bool):
-            self.state["cmd_suction_state"] = 0.0 if not msg.data else 1.0
+            self.state["cmd_suction_state"] = -1.0 if not msg.data else 1.0
         self.cmd_suction_state_sub = self._node.create_subscription(
             Bool,
             "cmd_suction_state",
@@ -143,16 +143,22 @@ class SkillExecutionStateInterface(StateInterface):
                 TOOL_FRAME,
                 rclpy.time.Time(),   # latest available
             )
+            
+            rot6d = quaternion_to_6d([
+                transform.transform.rotation.x,
+                transform.transform.rotation.y,
+                transform.transform.rotation.z,
+                transform.transform.rotation.w
+            ])
+            
+            self.state["last_eef_pose"] = self.state.get("eef_pose", [0.0] * 9)
 
             self.state["eef_pose"] = [
                 transform.transform.translation.x,
                 transform.transform.translation.y,
                 transform.transform.translation.z,
-                transform.transform.rotation.x,
-                transform.transform.rotation.y,
-                transform.transform.rotation.z,
-                transform.transform.rotation.w
-            ]
+            ] + rot6d
+            
         except (LookupException, ConnectivityException, ExtrapolationException):
             return
     
@@ -213,7 +219,8 @@ class SkillExecutionStateInterface(StateInterface):
         
     def _append_boundingbox_mask(self, points_image: np.ndarray) -> np.ndarray:
         """Append a binary mask channel to the point image based on the selected bounding box."""
-        
+        if self.selected_bbox is None:
+            return
         bb_min_x = int((self.selected_bbox.x - self.selected_bbox.w / 2) / DOWNSAMPLE_RATIO)
         bb_min_y = int((self.selected_bbox.y - self.selected_bbox.h / 2) / DOWNSAMPLE_RATIO)
         bb_max_x = int((self.selected_bbox.x + self.selected_bbox.w / 2) / DOWNSAMPLE_RATIO)
@@ -280,7 +287,6 @@ class SkillExecutionStateInterface(StateInterface):
         pc_msg = pc2.create_cloud(header, fields, points)
         self.point_image_pub.publish(pc_msg)
         
-        
     # Get current states and observations
     def get_state(self) -> dict:
         return self.state
@@ -305,12 +311,17 @@ class SkillExecutionStateInterface(StateInterface):
         return SKILL_VOCAB[self.action]
     
     def get_robot_state(self):
-        joint_positions_cos = np.cos(self.state["joint_positions"])
+        # joint_positions_cos = np.cos(self.state["joint_positions"])
         return np.array(
             self.state["eef_pose"] + 
-            [self.state["suction_state"]] + 
-            joint_positions_cos.tolist(), dtype=np.float32
+            self.state["joint_positions"] +
+            # self.state["last_eef_pose"] + 
+            # joint_positions_cos.tolist() +
+            [self.state["suction_state"]], dtype=np.float32
         )
+        
+    def get_done(self):
+        return self.state["done"]
         
     def check_collision(self) -> bool:
         return self.collision_monitor.check_collisions()
@@ -329,16 +340,20 @@ class SkillExecutionStateInterface(StateInterface):
                 reward += max(0, 1.0 - distance)  # Closer gets higher reward
             
         # Additional reward for successful suction (if suction state is on and object is close)
-        if self.state["cmd_suction_state"]:
-            if self.state["suction_state"]:
+        self.state["done"] = 0.0
+        if self.state["cmd_suction_state"] == 1.0:  # If suction command is on
+            if self.state["suction_state"] == 1.0:  # If suction state is on (object is picked)
+                self.state["done"] = 1.0
                 reward += SUCCESS_PICK_REWARD  # Bonus for successful pick
             else:
+                self.state["done"] = 0.0
                 reward += FAILED_PICK_PENALTY  # Penalty for failed pick
                 
         return reward
     
     def _get_placing_reward(self) -> float:
         reward = 0.0
+        self.state["done"] = 0.0
         # Reward based on how close the end-effector is to the target place position
         if self.state["point_image"] is not None:
             # Center of the masked points in the point image
@@ -353,11 +368,13 @@ class SkillExecutionStateInterface(StateInterface):
                 reward += max(0, 1.0 - distance)  # Closer gets higher reward
                 
                 # Additional reward for successful release (Only when the gripper close to the place position and suction is off)
-                if not self.state["cmd_suction_state"]:
+                if self.state["cmd_suction_state"] == -1.0:  # If suction command is off
                     if distance < 0.2:
                         reward += SUCCESS_DROP_REWARD  # Bonus for successful place
+                        self.state["done"] = 1.0
                     else:
                         reward += FAILED_DROP_PENALTY  # Penalty placing in wrong position
+                        self.state["done"] = 0.0
                         
         return reward
                         

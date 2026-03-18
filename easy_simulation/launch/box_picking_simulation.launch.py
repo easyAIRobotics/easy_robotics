@@ -128,7 +128,8 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {"robot_description": robot_description_content},
-            {"use_sim_time": LaunchConfiguration("use_sim_time")}
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {"publish_frequency": 200.0},
         ],
     )
 

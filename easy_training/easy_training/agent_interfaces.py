@@ -14,7 +14,8 @@ class AgentMode(Enum):
     IDLE = 0
     SELF_LEARNING = 1
     BEHAVIOR_CLONING = 2
-    PERFORMING = 3
+    IDLE_UPDATING = 3
+    PERFORMING = 4
     
     
 class ReplayBuffer:
@@ -61,7 +62,7 @@ class StateInterface:
 class ActionInterface:
     def __init__(self, node: Node):
         self._node = node
-        self.frequency = 10.0  # Default frequency for action execution
+        self.frequency = 5.0  # Default frequency for action execution
         self.action_interface_callback_group = ReentrantCallbackGroup()
         self._mode = AgentMode.IDLE
         self.action = None
@@ -99,12 +100,14 @@ class AgentInterface:
         
         self.rl_replay_buffer = None
         self.bc_replay_buffer = None
+        self.validate_buffer = None
         self.loss_visualizer = LossVisualizer()
         
         self._node.declare_parameter("storage_path", "/tmp/easy_training_data")
         self.storage_path = self._node.get_parameter("storage_path").get_parameter_value().string_value
         
         self.buffer_folder = self.storage_path + "/buffer_latest"
+        self.validate_folder = self.storage_path + "/validate_latest"
         self.model_folder = self.storage_path + "/model_latest"
             
         self._update_lock = threading.Lock()
@@ -114,26 +117,32 @@ class AgentInterface:
     def train_loop(self):
         while rclpy.ok():
             reward = 0.0
-            if not self.state_interface.check_sanity():
-                self.action_interface.wait_for_next_state()
-                continue
                         
             if self.mode_ == AgentMode.IDLE:
-                print("[AgentInterface] Agent is idle. Waiting for mode change...", flush=True)
                 time.sleep(1.0)
                 continue
             
+            if self.mode_ == AgentMode.IDLE_UPDATING:
+                self.update()
+                time.sleep(0.05)
+                continue
+            
+            if not self.state_interface.check_sanity():
+                self.action_interface.wait_for_next_state()
+                continue
+            
             if self.mode_ == AgentMode.SELF_LEARNING:
-                print("[AgentInterface] self-learning mode, make an exploration action", flush=True)
-                action = self.infer_action(deterministic=False)
+                action = self.infer_action(deterministic=True)
+                if not action:
+                    continue
                 reward, transition = self.action_interface.perform(action, self.state_interface)
                 if transition:
                     transition["reward"] = reward  # Use the reward from performing the policy action
                     self.add_rl_transition(transition)
-                self.update()
+                time.sleep(1.0)
+                # self.update()
                 
             if self.mode_ == AgentMode.BEHAVIOR_CLONING:
-                print("[AgentInterface] behavior cloning mode, perform no action", flush=True)
                 reward, transition = self.action_interface.perform([], self.state_interface)
                 if transition:
                     transition["reward"] = reward  # Use the reward from performing the user action
@@ -141,11 +150,12 @@ class AgentInterface:
                 self.update()
                 
             if self.mode_ == AgentMode.PERFORMING:
-                print("[AgentInterface] performing mode, make a policy-generated action", flush=True)
                 action = self.infer_action(deterministic=True)
+                if not action:
+                    continue
                 _, _ = self.action_interface.perform(action, self.state_interface)
             
-            print(f"[AgentInterface] Received reward: {reward}", flush=True)
+            # print(f"[AgentInterface] Received reward: {reward}", flush=True)
         self.reset()
         
         
@@ -157,6 +167,8 @@ class AgentInterface:
             self.mode_ = AgentMode.BEHAVIOR_CLONING
         elif mode == "training/stop":
             self.mode_ = AgentMode.IDLE
+        elif mode == "training/idle":
+            self.mode_ = AgentMode.IDLE_UPDATING
         elif mode == "performing":
             self.mode_ = AgentMode.PERFORMING
         else:
