@@ -25,6 +25,7 @@ TOOL_FRAME = 'virtual_suction_tip'
 
 DOWNSAMPLE_RATIO = 4
 DEPTH_SCALE = 1
+TARGET_IMAGE_SIZE = (16, 16)
 
 SKILL_VOCAB = {
     "pick": np.array([1.0, 0.0, 0.0], dtype=np.float32),
@@ -32,11 +33,14 @@ SKILL_VOCAB = {
     "move": np.array([0.0, 0.0, 1.0], dtype=np.float32)
 }
 
-SUCCESS_PICK_REWARD = 1.0
+SUCCESS_PICK_REWARD = 1000.0
 FAILED_PICK_PENALTY = 0.0
 
-SUCCESS_DROP_REWARD = 1.0
+SUCCESS_DROP_REWARD = 1000.0
 FAILED_DROP_PENALTY = -10.0
+
+DISTANCE_REWARD_SCALE = 2.0
+DROPPING_HEIGHT = 0.45
         
 class SkillExecutionStateInterface(StateInterface):
     def __init__(self, node: Node):
@@ -70,9 +74,9 @@ class SkillExecutionStateInterface(StateInterface):
         self.tf_timer = self._node.create_timer(0.01, self.tf_timer_callback, callback_group=self.state_interface_callback_group)
         
         # Gripper state subscription
-        self.state["suction_state"] = -1.0
+        self.state["suction_state"] = 0.0
         def _suction_state_callback(msg: Bool):
-            self.state["suction_state"] = -1.0 if not msg.data else 1.0
+            self.state["suction_state"] = 0.0 if not msg.data else 1.0
         self.suction_state_sub = self._node.create_subscription(
             Bool,
             "suction_state",
@@ -81,9 +85,9 @@ class SkillExecutionStateInterface(StateInterface):
             callback_group=self.state_interface_callback_group
         )
         
-        self.state["cmd_suction_state"] = -1.0
+        self.state["cmd_suction_state"] = 0.0
         def _cmd_suction_state_callback(msg: Bool):
-            self.state["cmd_suction_state"] = -1.0 if not msg.data else 1.0
+            self.state["cmd_suction_state"] = 0.0 if not msg.data else 1.0
         self.cmd_suction_state_sub = self._node.create_subscription(
             Bool,
             "cmd_suction_state",
@@ -94,6 +98,7 @@ class SkillExecutionStateInterface(StateInterface):
         
         # Depth observation
         self.state["point_image"] = None
+        self.state["target_image"] = None
         self.depth_image = self._node.create_subscription(
             Image,
             "camera/depth",
@@ -226,13 +231,9 @@ class SkillExecutionStateInterface(StateInterface):
         bb_max_x = int((self.selected_bbox.x + self.selected_bbox.w / 2) / DOWNSAMPLE_RATIO)
         bb_max_y = int((self.selected_bbox.y + self.selected_bbox.h / 2) / DOWNSAMPLE_RATIO)
         
-        mask = np.zeros(points_image.shape[:2], dtype=np.float32)
-        mask[bb_min_y:bb_max_y, bb_min_x:bb_max_x] = 1.0
-        
-        self.state['point_image'] = np.concatenate(
-            [points_image, mask[..., np.newaxis]],
-            axis=-1
-        )
+        self.state['point_image'] = points_image[::4, ::4]
+        target_full_size = points_image[bb_min_y:bb_max_y, bb_min_x:bb_max_x]
+        self.state['target_image'] = cv2.resize(target_full_size, TARGET_IMAGE_SIZE, interpolation=cv2.INTER_AREA)
         
     def _lookup_depth_transform(self):
         """Lookup the transform from camera frame to base frame."""
@@ -265,14 +266,39 @@ class SkillExecutionStateInterface(StateInterface):
             self.depth_transform_mtx = None
         
     def _publish_point_image(self):
-        """Publish the point cloud image for visualization/debugging."""
+        """Publish combined point cloud with mask labels."""
         if self.state['point_image'] is None:
             return
-        
-        # Convert point image to PointCloud2
-        # Flatten to (N, 4) where 4 = (x, y, z, mask)
-        points = self.state['point_image'].reshape(-1, 4)
 
+        import numpy as np
+
+        points_image = self.state['point_image']   # (H, W, 3) or (N, 3)
+        target_image = self.state.get('target_image', None)  # (h, w, 3) or (M, 3)
+
+        # --- Flatten to (N, 3) ---
+        points_bg = points_image.reshape(-1, 3)
+
+        # Mask = 0.0 for background
+        mask_bg = np.zeros((points_bg.shape[0], 1), dtype=np.float32)
+        points_bg = np.hstack((points_bg, mask_bg))  # (N, 4)
+
+        # --- Target points ---
+        if target_image is not None:
+            points_target = target_image.reshape(-1, 3)
+
+            # Mask = 1.0 for target
+            mask_target = np.ones((points_target.shape[0], 1), dtype=np.float32)
+            points_target = np.hstack((points_target, mask_target))  # (M, 4)
+
+            # --- Concatenate ---
+            points = np.vstack((points_bg, points_target))
+        else:
+            points = points_bg
+
+        # Ensure float32
+        points = points.astype(np.float32)
+
+        # --- ROS2 PointCloud2 ---
         header = Header()
         header.stamp = self._node.get_clock().now().to_msg()
         header.frame_id = BASE_FRAME
@@ -286,6 +312,7 @@ class SkillExecutionStateInterface(StateInterface):
 
         pc_msg = pc2.create_cloud(header, fields, points)
         self.point_image_pub.publish(pc_msg)
+        
         
     # Get current states and observations
     def get_state(self) -> dict:
@@ -306,6 +333,9 @@ class SkillExecutionStateInterface(StateInterface):
     
     def get_image(self):
         return self.state["point_image"]
+    
+    def get_target_image(self):
+        return self.state["target_image"]
     
     def get_skill(self):
         return SKILL_VOCAB[self.action]
@@ -330,14 +360,10 @@ class SkillExecutionStateInterface(StateInterface):
         reward = 0.0
         # Reward based on how close the end-effector is to the object (using point cloud mask)
         if self.state["point_image"] is not None:
-            # Center of the masked points in the point image
-            mask = self.state["point_image"][..., 3]  # Mask channel
-            if np.sum(mask) > 0:
-                masked_points = self.state["point_image"][mask > 0][:, :3]  # Get XYZ of masked points
-                object_center = np.mean(masked_points, axis=0)
-                ee_position = np.array(self.state["eef_pose"][:3])
-                distance = np.linalg.norm(ee_position - object_center)
-                reward += max(0, 1.0 - distance)  # Closer gets higher reward
+            object_center = np.mean(self.state["target_image"], axis=(0, 1))
+            ee_position = np.array(self.state["eef_pose"][:3])
+            distance = np.linalg.norm(ee_position - object_center)
+            reward -= DISTANCE_REWARD_SCALE * (distance ** 2)  # Closer gets higher reward
             
         # Additional reward for successful suction (if suction state is on and object is close)
         self.state["done"] = 0.0
@@ -356,25 +382,22 @@ class SkillExecutionStateInterface(StateInterface):
         self.state["done"] = 0.0
         # Reward based on how close the end-effector is to the target place position
         if self.state["point_image"] is not None:
-            # Center of the masked points in the point image
-            mask = self.state["point_image"][..., 3]  # Mask channel
-            if np.sum(mask) > 0:
-                masked_points = self.state["point_image"][mask > 0][:, :3]  # Get XYZ of masked points
-                object_center = np.mean(masked_points, axis=0)
-                ee_position = np.array(self.state["eef_pose"][:3])
-                diff_vector = ee_position - object_center
-                diff_vector[2] = 0.0  # Ignore height difference for placing reward
-                distance = np.linalg.norm(diff_vector)
-                reward += max(0, 1.0 - distance)  # Closer gets higher reward
-                
-                # Additional reward for successful release (Only when the gripper close to the place position and suction is off)
-                if self.state["cmd_suction_state"] == -1.0:  # If suction command is off
-                    if distance < 0.2:
-                        reward += SUCCESS_DROP_REWARD  # Bonus for successful place
-                        self.state["done"] = 1.0
-                    else:
-                        reward += FAILED_DROP_PENALTY  # Penalty placing in wrong position
-                        self.state["done"] = 0.0
+            object_center = np.mean(self.state["target_image"], axis=(0, 1))
+            object_center[2] = DROPPING_HEIGHT
+            ee_position = np.array(self.state["eef_pose"][:3])
+            diff_vector = ee_position - object_center
+            print(f"EE position: {ee_position}, Target place position: {object_center}, Diff: {diff_vector}", flush=True)
+            distance = np.linalg.norm(diff_vector)
+            reward -= DISTANCE_REWARD_SCALE * (distance ** 2)  # Closer gets higher reward
+            
+            # Additional reward for successful release (Only when the gripper close to the place position and suction is off)
+            if self.state["cmd_suction_state"] == 0.0:  # If suction command is off
+                if distance < 0.3:
+                    reward += SUCCESS_DROP_REWARD  # Bonus for successful place
+                    self.state["done"] = 1.0
+                else:
+                    reward += FAILED_DROP_PENALTY  # Penalty for placing in wrong position
+                    self.state["done"] = 0.0
                         
         return reward
                         

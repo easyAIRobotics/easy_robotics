@@ -37,7 +37,7 @@ class SkillExecutionAgentInterface(AgentInterface):
         
         self.rl_replay_buffer = SkillExecutionReplayBuffer(
             capacity=RL_BUFFER_CAPACITY,
-            image_shape=(120, 160, 4),
+            image_shape=(30, 40, 3),
             skill_dim=3,
             robot_state_dim=16,
             action_dim=7,
@@ -46,7 +46,7 @@ class SkillExecutionAgentInterface(AgentInterface):
         
         self.bc_replay_buffer = SkillExecutionReplayBuffer(
             capacity=BC_BUFFER_CAPACITY,
-            image_shape=(120, 160, 4),
+            image_shape=(30, 40, 3),
             skill_dim=3,
             robot_state_dim=16,
             action_dim=7,
@@ -55,7 +55,7 @@ class SkillExecutionAgentInterface(AgentInterface):
         
         self.validate_buffer = SkillExecutionReplayBuffer(
             capacity=VAL_BUFFER_CAPACITY,
-            image_shape=(120, 160, 4),
+            image_shape=(30, 40, 3),
             skill_dim=3,
             robot_state_dim=16,
             action_dim=7,
@@ -99,6 +99,7 @@ class SkillExecutionAgentInterface(AgentInterface):
     def infer_action(self, deterministic=True):
         state_dict = {
             "image": self.state_interface.get_image(),
+            "target_image": self.state_interface.get_target_image(),
             "skill": self.state_interface.get_skill(),
             "robot_state": self.state_interface.get_robot_state()
         }
@@ -127,7 +128,7 @@ class SkillExecutionAgentInterface(AgentInterface):
         try:
             with self._buffer_lock:
                 rl_batch = self.rl_replay_buffer.sample(64)
-                bc_batch = self.bc_replay_buffer.sample(256)
+                bc_batch = self.bc_replay_buffer.sample(128)
                 val_batch = self.validate_buffer.sample(128)
 
             losses = self.sac_agent.update(rl_batch, bc_batch, val_batch)
@@ -142,17 +143,20 @@ class SkillExecutionAgentInterface(AgentInterface):
         
     def add_rl_transition(self, transition: dict):
         with self._buffer_lock:
-            self._node.get_logger().info(
-                f"[SkillExecutionAgentInterface] Adding RL transition to replay buffer, action taken: {transition['action']}, reward: {transition['reward']}"
-            )
+            # self._node.get_logger().info(
+            #     f"[SkillExecutionAgentInterface] Adding RL transition to replay buffer, action taken: {transition['action']}, reward: {transition['reward']}"
+            # )
             self.rl_replay_buffer.add(
                 image=transition["image"],
+                target_image=transition["target_image"],
                 skill=transition["skill"],
                 robot_state=transition["robot_state"],
-                action=transition["action"],
+                j_action=transition["j_action"],
+                e_action=transition["e_action"],
                 reward=transition["reward"],
                 done=transition["done"],
                 next_image=transition["next_image"],
+                next_target_image=transition["next_target_image"],
                 next_skill=transition["next_skill"],
                 next_robot_state=transition["next_robot_state"],
             )
@@ -160,17 +164,20 @@ class SkillExecutionAgentInterface(AgentInterface):
         
     def add_bc_transition(self, transition: dict):
         with self._buffer_lock:
-            self._node.get_logger().info(
-                f"[SkillExecutionAgentInterface] Adding BC transition to replay buffer, action taken: {transition['action']}, reward: {transition['reward']}"
-            )
+            # self._node.get_logger().info(
+            #     f"[SkillExecutionAgentInterface] Adding BC transition to replay buffer, j_action taken: {transition['j_action']}, e_action taken: {transition['e_action']}, reward: {transition['reward']}"
+            # )
             self.bc_replay_buffer.add(
                 image=transition["image"],
+                target_image=transition["target_image"],
                 skill=transition["skill"],
                 robot_state=transition["robot_state"],
-                action=transition["action"],
+                j_action=transition["j_action"],
+                e_action=transition["e_action"],
                 reward=transition["reward"],
                 done=transition["done"],
                 next_image=transition["next_image"],
+                next_target_image=transition["next_target_image"],
                 next_skill=transition["next_skill"],
                 next_robot_state=transition["next_robot_state"],
             )

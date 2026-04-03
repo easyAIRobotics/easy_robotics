@@ -2,7 +2,7 @@
   ros__parameters:
     contact_sensors:
       # - base_link_contact_sensor
-      - arm_link_contact_sensor
+      # - arm_link_contact_sensor
       - forearm_link_contact_sensor
       # - shoulder_link_contact_sensor
       - lower_wrist_link_contact_sensor

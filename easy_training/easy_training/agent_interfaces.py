@@ -62,7 +62,7 @@ class StateInterface:
 class ActionInterface:
     def __init__(self, node: Node):
         self._node = node
-        self.frequency = 5.0  # Default frequency for action execution
+        self.frequency = 3.0  # Default frequency for action execution
         self.action_interface_callback_group = ReentrantCallbackGroup()
         self._mode = AgentMode.IDLE
         self.action = None
@@ -139,8 +139,7 @@ class AgentInterface:
                 if transition:
                     transition["reward"] = reward  # Use the reward from performing the policy action
                     self.add_rl_transition(transition)
-                time.sleep(1.0)
-                # self.update()
+                self.update()
                 
             if self.mode_ == AgentMode.BEHAVIOR_CLONING:
                 reward, transition = self.action_interface.perform([], self.state_interface)
@@ -155,7 +154,7 @@ class AgentInterface:
                     continue
                 _, _ = self.action_interface.perform(action, self.state_interface)
             
-            # print(f"[AgentInterface] Received reward: {reward}", flush=True)
+            print(f"[AgentInterface] Received reward: {reward}", flush=True)
         self.reset()
         
         

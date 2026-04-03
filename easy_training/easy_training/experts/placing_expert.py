@@ -107,27 +107,28 @@ class PlacingExpert:
                     f"Computed placing pose: position={placing_point}, orientation={placing_quat}"
                 )
                 
-                current_eef_transform = self._lookup_eef_transform()
-                current_eef_transform.pose.position.z += 0.05  # lift up a bit to avoid collision during placing
-                if current_eef_transform.pose.position.x > 0.3:
-                    current_eef_transform.pose.position.x -= 0.05
-                                    
                 goal_req = ExecuteGoal.Request()
-                goal_req.speed_factor = 0.2
+                goal_req.speed_factor = 0.4
+                goal_req.planning_time = 1.0
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
-                goal_req.goal.pose = current_eef_transform.pose
                 
-                while not self.execute_goal_client.wait_for_service(timeout_sec=1.0):
-                    self._node.get_logger().info("Waiting for execute_goal service...")
+                current_eef_transform = self._lookup_eef_transform()
+                if current_eef_transform.pose.position.z < 0.3:
+                    current_eef_transform.pose.position.z += 0.05  # lift up a bit to avoid collision during placing
+                    if current_eef_transform.pose.position.x > 0.3:
+                        current_eef_transform.pose.position.x -= 0.05
+                                        
+                    goal_req.goal.pose = current_eef_transform.pose
                     
-                future = self.execute_goal_client.call_async(goal_req)
-                while not future.done():
-                    time.sleep(0.001)
-                if future.result() is None or not future.result().success:
-                    self._running = False
-                    return
+                    while not self.execute_goal_client.wait_for_service(timeout_sec=1.0):
+                        self._node.get_logger().info("Waiting for execute_goal service...")
+                        
+                    future = self.execute_goal_client.call_async(goal_req)
+                    while not future.done():
+                        time.sleep(0.001)
                 
+                goal_req.planning_time = 10.0
                 goal_req.goal.pose.position.x = float(placing_point[0])
                 goal_req.goal.pose.position.y = float(placing_point[1])
                 goal_req.goal.pose.position.z = float(placing_point[2])

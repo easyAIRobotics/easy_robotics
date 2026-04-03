@@ -45,6 +45,7 @@ public:
     }
     move_group_->startStateMonitor();
     move_group_->setPoseReferenceFrame("base_link");
+    move_group_->setPlannerId("RRTstarkConfigDefault");
 
     // -------------------------------
     // Services
@@ -212,6 +213,8 @@ private:
       std::shared_ptr<ExecuteGoal::Response> res)
   {
     RCLCPP_INFO(node_->get_logger(), "Received request to set end effector pose");
+    move_group_->setPlanningTime(req->planning_time);
+    move_group_->setStartStateToCurrentState();
     if (planAndExecute(transformPoseToWorld(req->goal.pose), req->speed_factor))
     {
       res->success = true;
@@ -229,7 +232,6 @@ private:
   bool planAndExecute(const geometry_msgs::msg::Pose &target_pose,
                       const double speed_factor = 1.0)
   {
-    move_group_->setPlanningTime(10.0);
     move_group_->setMaxVelocityScalingFactor(speed_factor);
     move_group_->setStartStateToCurrentState();
 
@@ -290,7 +292,11 @@ private:
 
     if (success)
     {
-      move_group_->execute(plan);
+      if (!move_group_->execute(plan))
+      {
+        RCLCPP_ERROR(node_->get_logger(), "Failed to execute plan");
+        success = false;
+      }
     }
 
     // Clear constraints for next motions

@@ -20,18 +20,27 @@ from tf2_ros import TransformBroadcaster
 
 import copy
 
-IK_FAILURE_PENALTY = 0.0
+IK_FAILURE_PENALTY = 2.0
 COLLISION_PENALTY = 5.0
 EEF_MOVEMENT_PENALTY_SCALE = 1.0
 
 MOVEGROUP_NAME = 'suction_tip'
 BASE_FRAME = 'base_link'
 
+MAX_JOINT_DELTA = 0.1  # Maximum allowed joint position change
+
+JOINT_LOWER_LIMITS = np.array([-2.67, -1.49, -0.6, -2.6, -2.52, -2.6])
+JOINT_UPPER_LIMITS = np.array([2.67, 0.09, 2.6, 2.6, 2.52, 2.6])
+
+ACTION_MODE = "joint_positions" # or "eef_pose"
+# ACTION_MODE = "eef_pose"
+
 class SkillExecutionActionInterface(ActionInterface):
     def __init__(self, node: Node):
         super().__init__(node)
         
         self._mode = AgentMode.SELF_LEARNING
+        self.last_state = None
         
         self.solve_ik_client = self._node.create_client(
             SolveIK, 'solve_ik', callback_group=self.action_interface_callback_group)
@@ -84,7 +93,7 @@ class SkillExecutionActionInterface(ActionInterface):
         
         # Switch controllers based on mode
         sw_req = SwitchController.Request()
-        if self._mode == AgentMode.BEHAVIOR_CLONING:
+        if self._mode == AgentMode.BEHAVIOR_CLONING or self._mode == AgentMode.IDLE:
             sw_req.deactivate_controllers = ['forward_position_joint_controller']
             sw_req.activate_controllers = ['joint_trajectory_controller']
         else:
@@ -115,54 +124,85 @@ class SkillExecutionActionInterface(ActionInterface):
     
     # Perform action and return the reward"""
     def perform(self, act_vec: list, state_interface: StateInterface) -> dict:
-        state = copy.deepcopy(state_interface.get_state())  # Get current state
+        if self.last_state is None:
+            self.last_state = copy.deepcopy(state_interface.get_state())  # Get current state
+        
+        transition = {
+            "image": state_interface.get_image(),
+            "target_image": state_interface.get_target_image(),
+            "skill": state_interface.get_skill(),
+            "robot_state": state_interface.get_robot_state(),
+        }
         
         reward = 0.0
         if act_vec:
-            act = {
-                "joint_positions": act_vec[:6],
-                "suction_command": act_vec[6]
-            }
+            if ACTION_MODE == "eef_pose":
+                act = {
+                    "eef_pose": act_vec[:9],
+                    "suction_command": act_vec[9]
+                }
+                joint_positions = self.solve_IK(act["eef_pose"], self.last_state["joint_positions"])
+                self._broadcast_target_tf(act["eef_pose"])
+            else:  # ACTION_MODE == "joint_positions"
+                act = {
+                    "joint_positions": act_vec[:6],
+                    "suction_command": act_vec[6]
+                }
+                joint_positions = act["joint_positions"]
+                
+            if joint_positions and not self._check_joint_limits(joint_positions):
+                print(f"[SkillExecutionActionInterface] Joint limits violated for positions: {joint_positions}", flush=True)
+                joint_positions = [
+                    np.clip(joint_positions[i], JOINT_LOWER_LIMITS[i], JOINT_UPPER_LIMITS[i]) for i in range(len(joint_positions))
+                ]
+                reward -= IK_FAILURE_PENALTY
             
-            # act_eef_pose = do_transform(act["eef_pose"], state["eef_pose"])                      
-            # joint_positions = self.solve_IK(act["eef_pose"], state["joint_positions"])                
-            
-            # TODO: Verify collision before executing action
-            # print(f"Current state joint positions: {state['joint_positions']} \n target joint positions: {joint_positions}", flush=True)
-            # self._broadcast_target_tf(act["eef_pose"])
-            # j_dist = joint_distance(state["joint_positions"], joint_positions) if joint_positions else float('inf')
-            # print(f"Joint distance to target: {j_dist}", flush=True)
-            # if joint_positions and j_dist < 0.5:
-            #     self.send_joint_command(joint_positions)
-            #     self.send_gripper_command(act["suction_command"])
-            # else:
-            #     reward -= IK_FAILURE_PENALTY  # Penalize for IK failure
-            # target_joint_positions = np.array(state["joint_positions"]) + np.array(act["delta_joint_positions"])
-            
-            self.send_joint_command(act["joint_positions"])
-            self.send_gripper_command(act["suction_command"])
+            if joint_positions:
+                bounded_joint_positions = self._make_bounded_joint_positions(self.last_state["joint_positions"], joint_positions, MAX_JOINT_DELTA)
+                
+                self.send_joint_command(bounded_joint_positions)
+                self.send_gripper_command(act["suction_command"])
             taken_act = act
             
             self.wait_for_next_state()
+            
+            if not joint_positions:
+                reward -= IK_FAILURE_PENALTY  # Penalize for IK failure
+            
             if state_interface.check_collision():
                 self._node.get_logger().warn(f"[SkillExecutionActionInterface] Penalize collision action in active mode")
                 reward -= COLLISION_PENALTY  # Penalize for collision
+            
+            if ACTION_MODE == "eef_pose":
+                taken_act["joint_positions"] = joint_positions
+            else:
+                taken_act["eef_pose"] = state_interface.get_state()["eef_pose"] 
                 
         if not act_vec:
             if self._mode == AgentMode.BEHAVIOR_CLONING:
                 self.wait_for_next_state()
                 next_state = state_interface.get_state()  # Get current state
                 taken_act = {
+                    "eef_pose": next_state["eef_pose"],
                     "joint_positions": next_state["joint_positions"],
                     "suction_command": next_state["cmd_suction_state"]
                 }
                 
                 # Dont record expert demonstration if no movement is taken
-                tf_dist = joint_distance(state["joint_positions"], next_state["joint_positions"])
-                if tf_dist < 5e-3 and \
-                        taken_act["suction_command"] == state["cmd_suction_state"]:
+                tf_dist = joint_distance(self.last_state["joint_positions"], next_state["joint_positions"])
+                print(f"suction_command: {taken_act['suction_command']} vs last cmd {self.last_state['cmd_suction_state']}, tf_dist: {tf_dist}", flush=True)
+                if tf_dist < 0.1 and \
+                        taken_act["suction_command"] == self.last_state["cmd_suction_state"]:
                     return 0.0, {}  # No action taken, skipping
-                            
+                
+                if tf_dist > 0.5 and \
+                        taken_act["suction_command"] == self.last_state["cmd_suction_state"]:
+                    self.last_state = copy.deepcopy(state_interface.get_state())
+                    return 0.0, {}  # Large movement without suction change, likely not a valid demo, skipping
+                
+                if taken_act["suction_command"] != self.last_state["cmd_suction_state"]:
+                    # Wait more 1 sec to ensure the effect of suction command is reflected in the state
+                    time.sleep(1.0)                           
             
                 if state_interface.check_collision():
                     self._node.get_logger().warn(f"[SkillExecutionActionInterface] Penalize collision action in passive mode")
@@ -170,23 +210,23 @@ class SkillExecutionActionInterface(ActionInterface):
                     
         
             # taken_act = do_reverse_transform(taken_act_eef_pose["eef_pose"], state["eef_pose"]) + [taken_act_eef_pose["suction_command"]]
-        
-        taken_act_vec = taken_act["joint_positions"] + [taken_act["suction_command"]]
+        self.last_state = copy.deepcopy(state_interface.get_state())
+        taken_j_action = taken_act["joint_positions"] + [taken_act["suction_command"]]
+        taken_e_action = taken_act["eef_pose"] + [taken_act["suction_command"]]
 
         # Accumulate reward from next state
         reward += state_interface.get_reward()
         print(f"DONEEEEEE: {state_interface.get_done()}", flush=True)
-        transition = {
-            "action": np.array(taken_act_vec),
-            "image": state_interface.get_image(),
-            "skill": state_interface.get_skill(),
-            "robot_state": state_interface.get_robot_state(),
+        transition.update({
+            "j_action": np.array(taken_j_action),
+            "e_action": np.array(taken_e_action),
             "next_image": state_interface.get_image(),
+            "next_target_image": state_interface.get_target_image(),
             "next_skill": state_interface.get_skill(),
             "next_robot_state": state_interface.get_robot_state(),
             "done": state_interface.get_done()
-        }
-        
+        })
+                
         return reward, transition
     
     
@@ -209,9 +249,9 @@ class SkillExecutionActionInterface(ActionInterface):
                 print(f"[SkillExecutionActionInterface] IK solution found: {joint_positions}", flush=True)
             else:
                 print(f"[SkillExecutionActionInterface] IK solution not found with reason: {res.message}", flush=True)
-                joint_positions = []
+                return []
                 
-        return joint_positions
+        return joint_positions.tolist()
     
     
     def check_collision(self, joint_positions: list[float]) -> bool:
@@ -241,7 +281,7 @@ class SkillExecutionActionInterface(ActionInterface):
         
         
     def send_gripper_command(self, suction_command: float):
-        suction_on = suction_command > 0.0
+        suction_on = suction_command > 0.5
         suction_command_msg = Bool()
         suction_command_msg.data = suction_on
         self.cmd_suction_pub.publish(suction_command_msg)
@@ -262,3 +302,21 @@ class SkillExecutionActionInterface(ActionInterface):
         t.transform.rotation.w = target_pose_quat[3]
         
         self.tf_broadcaster.sendTransform(t)
+
+    def _make_bounded_joint_positions(self, current_joints: list[float], target_joints: list[float], max_delta: float) -> list[float]:
+        bounded_joints = []
+        j_delta = np.array(target_joints) - np.array(current_joints)
+        max_abs_delta = np.max(np.abs(j_delta))
+        print(f"max abs delta: {max_abs_delta}, j_delta: {j_delta}", flush=True)
+        if max_abs_delta > max_delta:
+            j_delta = (j_delta / max_abs_delta) * max_delta
+        bounded_joints = np.array(current_joints) + j_delta
+        return bounded_joints.tolist()
+    
+    
+    def _check_joint_limits(self, joint_positions: list[float]) -> bool:
+        for i, joint in enumerate(joint_positions):
+            if joint < JOINT_LOWER_LIMITS[i] or joint > JOINT_UPPER_LIMITS[i]:
+                return False
+        return True
+    

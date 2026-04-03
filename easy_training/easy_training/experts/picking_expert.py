@@ -105,7 +105,8 @@ class PickingExpert:
                 )
                 
                 goal_req = ExecuteGoal.Request()
-                goal_req.speed_factor = 0.2
+                goal_req.speed_factor = 0.4
+                goal_req.planning_time = 10.0
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
                 goal_req.goal.pose.position.x = float(pre_picking_point[0])
@@ -124,6 +125,7 @@ class PickingExpert:
                     self._running = False
                     return
                 
+                goal_req.planning_time = 1.0
                 goal_req.goal.pose.position.x = float(picking_point[0])
                 goal_req.goal.pose.position.y = float(picking_point[1])
                 goal_req.goal.pose.position.z = float(picking_point[2])
@@ -229,7 +231,7 @@ class PickingExpert:
         # ---------------------------
         picking_quat = tf_transformations.quaternion_from_matrix(T)
         picking_point += 0.01 * normal_base  # offset along normal for better grasping
-        pre_picking_point = picking_point - 0.01 * normal_base  # pre-picking point for approach
+        pre_picking_point = picking_point - 0.05 * normal_base  # pre-picking point for approach
 
         return pre_picking_point, picking_point, picking_quat
     

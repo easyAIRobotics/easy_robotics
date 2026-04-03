@@ -1,5 +1,6 @@
 geometry_msgs/PoseStamped goal
 float64 speed_factor
+float64 planning_time
 
 ---
 

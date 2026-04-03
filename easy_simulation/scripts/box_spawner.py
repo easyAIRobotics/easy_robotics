@@ -16,8 +16,8 @@ from tf_transformations import quaternion_from_euler
 import threading
 
 NUM_BOXES = 10
-NUM_TARGET_BOXES = 4
-AREA_RADIUS = 0.2
+NUM_TARGET_BOXES = 5
+AREA_RADIUS = 0.3
 WORLD_NAME = "empty"     # Change if using another world name
 SDF_TEMPLATE = """
     <?xml version="1.0" ?>
@@ -48,7 +48,14 @@ class BoxSpawner:
         # Box model URIs
         self.box_uri = {
             "box": "model://cardboard_box",
-            "target_box": "model://cardboard_box_green"
+            "target_box": "model://cardboard_box_green",
+            "storage_bin": "model://storage_bin",
+            "storage_bin_green": "model://storage_bin_green",
+        }
+        
+        self.storage_bin_positions = {
+            "storage_bin": [0.0, 0.5, 1.15],
+            "storage_bin_green": [0.0, -0.5, 1.15],
         }
 
         self.center_pose = [0.4, 0.0, 1.6]
@@ -139,8 +146,13 @@ class BoxSpawner:
         for id in self.models:
             if ("box" in self.models[id] and len(self.models[id]) < 7) or "target_box" in self.models[id]:
                 self.delete_box(id, self.models[id])
+            if "storage_bin" in self.models[id]:
+                self.delete_box(id, self.models[id])
 
         time.sleep(1.0)  # allow deletion to propagate
+        
+        for storage_bin_name in self.storage_bin_positions.keys():    
+            self.spawn_box(storage_bin_name, storage_bin_name, self.storage_bin_positions[storage_bin_name] + [0.0, 0.0, 0.0])
 
         num_spawned = {'box': 0, 'target_box': 0}
         id = 0
@@ -165,6 +177,7 @@ class BoxSpawner:
             self.spawn_box(box_name, box_type, [x, y, z, roll, pitch, yaw])
             num_spawned[box_type] += 1
             id += 1
+            
 
         self.ros_node.get_logger().info("[BoxSpawner] Done.")
 
