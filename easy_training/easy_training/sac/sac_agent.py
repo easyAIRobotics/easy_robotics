@@ -46,6 +46,10 @@ class SACAgent:
             self.q_optimizer.load_state_dict(checkpoint["q_optimizer"])
         except Exception:
             print("[SACAgent] Warning: Failed to load q optimizer state dict")
+            
+        self.policy.flatten_parameters()
+        self.q.flatten_parameters()
+        self.target_q.flatten_parameters()
 
     
     def save_model(self, model_folder):

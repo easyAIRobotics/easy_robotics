@@ -30,13 +30,13 @@ TARGET_IMAGE_SIZE = (16, 16)
 SKILL_VOCAB = {
     "pick": np.array([1.0, 0.0, 0.0], dtype=np.float32),
     "place": np.array([0.0, 1.0, 0.0], dtype=np.float32),
-    "move": np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    "home": np.array([0.0, 0.0, 1.0], dtype=np.float32)
 }
 
-SUCCESS_PICK_REWARD = 1000.0
+SUCCESS_PICK_REWARD = 10.0
 FAILED_PICK_PENALTY = 0.0
 
-SUCCESS_DROP_REWARD = 1000.0
+SUCCESS_DROP_REWARD = 10.0
 FAILED_DROP_PENALTY = -10.0
 
 DISTANCE_REWARD_SCALE = 2.0
@@ -316,6 +316,7 @@ class SkillExecutionStateInterface(StateInterface):
         
     # Get current states and observations
     def get_state(self) -> dict:
+        self.state['stamp'] = self._node.get_clock().now().to_msg()
         return self.state
     
     

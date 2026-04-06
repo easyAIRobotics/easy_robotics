@@ -23,6 +23,7 @@ import copy
 IK_FAILURE_PENALTY = 2.0
 COLLISION_PENALTY = 5.0
 EEF_MOVEMENT_PENALTY_SCALE = 1.0
+EXPERT_WAITING_TIMEOUT = 5.0
 
 MOVEGROUP_NAME = 'suction_tip'
 BASE_FRAME = 'base_link'
@@ -176,7 +177,10 @@ class SkillExecutionActionInterface(ActionInterface):
             if ACTION_MODE == "eef_pose":
                 taken_act["joint_positions"] = joint_positions
             else:
-                taken_act["eef_pose"] = state_interface.get_state()["eef_pose"] 
+                taken_act["eef_pose"] = state_interface.get_state()["eef_pose"]
+            
+            reward += state_interface.get_reward() 
+            act_done = state_interface.get_done()
                 
         if not act_vec:
             if self._mode == AgentMode.BEHAVIOR_CLONING:
@@ -190,33 +194,31 @@ class SkillExecutionActionInterface(ActionInterface):
                 
                 # Dont record expert demonstration if no movement is taken
                 tf_dist = joint_distance(self.last_state["joint_positions"], next_state["joint_positions"])
-                print(f"suction_command: {taken_act['suction_command']} vs last cmd {self.last_state['cmd_suction_state']}, tf_dist: {tf_dist}", flush=True)
-                if tf_dist < 0.1 and \
+                reward += state_interface.get_reward()
+                act_done = state_interface.get_done()
+                time_since_last_action = state_interface.get_state()["stamp"].sec - self.last_state["stamp"].sec
+                
+                self._node.get_logger().info(f"suction_command: {taken_act['suction_command']} vs last cmd {self.last_state['cmd_suction_state']}, tf_dist: {tf_dist}")
+                if tf_dist < 0.05  and act_done == 0.0 and \
+                    time_since_last_action < EXPERT_WAITING_TIMEOUT and \
                         taken_act["suction_command"] == self.last_state["cmd_suction_state"]:
                     return 0.0, {}  # No action taken, skipping
                 
-                if tf_dist > 0.5 and \
+                if tf_dist > 0.5 and act_done == 0.0 and \
                         taken_act["suction_command"] == self.last_state["cmd_suction_state"]:
                     self.last_state = copy.deepcopy(state_interface.get_state())
-                    return 0.0, {}  # Large movement without suction change, likely not a valid demo, skipping
-                
-                if taken_act["suction_command"] != self.last_state["cmd_suction_state"]:
-                    # Wait more 1 sec to ensure the effect of suction command is reflected in the state
-                    time.sleep(1.0)                           
+                    return 0.0, {}  # Large movement without suction change, likely not a valid demo, skipping                        
             
                 if state_interface.check_collision():
                     self._node.get_logger().warn(f"[SkillExecutionActionInterface] Penalize collision action in passive mode")
                     reward -= COLLISION_PENALTY  # Penalize for collision
-                    
-        
+                         
             # taken_act = do_reverse_transform(taken_act_eef_pose["eef_pose"], state["eef_pose"]) + [taken_act_eef_pose["suction_command"]]
         self.last_state = copy.deepcopy(state_interface.get_state())
         taken_j_action = taken_act["joint_positions"] + [taken_act["suction_command"]]
         taken_e_action = taken_act["eef_pose"] + [taken_act["suction_command"]]
 
-        # Accumulate reward from next state
-        reward += state_interface.get_reward()
-        print(f"DONEEEEEE: {state_interface.get_done()}", flush=True)
+        print(f"DONEEEEEE: {act_done}", flush=True)
         transition.update({
             "j_action": np.array(taken_j_action),
             "e_action": np.array(taken_e_action),
@@ -224,7 +226,7 @@ class SkillExecutionActionInterface(ActionInterface):
             "next_target_image": state_interface.get_target_image(),
             "next_skill": state_interface.get_skill(),
             "next_robot_state": state_interface.get_robot_state(),
-            "done": state_interface.get_done()
+            "done": act_done
         })
                 
         return reward, transition

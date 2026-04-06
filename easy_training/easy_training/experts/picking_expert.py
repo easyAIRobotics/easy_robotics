@@ -125,7 +125,9 @@ class PickingExpert:
                     self._running = False
                     return
                 
-                goal_req.planning_time = 1.0
+                self.suction_cmd_pub.publish(Bool(data=True))
+                
+                goal_req.planning_time = 2.0
                 goal_req.goal.pose.position.x = float(picking_point[0])
                 goal_req.goal.pose.position.y = float(picking_point[1])
                 goal_req.goal.pose.position.z = float(picking_point[2])
@@ -137,8 +139,6 @@ class PickingExpert:
                 if future.result() is None or not future.result().success:
                     self._running = False
                     return
-
-                self.suction_cmd_pub.publish(Bool(data=True))
 
             else:
                 self._node.get_logger().warn("Failed to compute picking pose")

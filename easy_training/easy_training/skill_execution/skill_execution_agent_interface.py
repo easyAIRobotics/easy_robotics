@@ -37,28 +37,16 @@ class SkillExecutionAgentInterface(AgentInterface):
         
         self.rl_replay_buffer = SkillExecutionReplayBuffer(
             capacity=RL_BUFFER_CAPACITY,
-            image_shape=(30, 40, 3),
-            skill_dim=3,
-            robot_state_dim=16,
-            action_dim=7,
             device="cuda"
         )
         
         self.bc_replay_buffer = SkillExecutionReplayBuffer(
             capacity=BC_BUFFER_CAPACITY,
-            image_shape=(30, 40, 3),
-            skill_dim=3,
-            robot_state_dim=16,
-            action_dim=7,
             device="cuda"
         )
         
         self.validate_buffer = SkillExecutionReplayBuffer(
             capacity=VAL_BUFFER_CAPACITY,
-            image_shape=(30, 40, 3),
-            skill_dim=3,
-            robot_state_dim=16,
-            action_dim=7,
             device="cuda"
         )
         
@@ -126,11 +114,12 @@ class SkillExecutionAgentInterface(AgentInterface):
 
     def _update_worker(self):
         try:
+            start = time.time()
             with self._buffer_lock:
-                rl_batch = self.rl_replay_buffer.sample(64)
-                bc_batch = self.bc_replay_buffer.sample(128)
-                val_batch = self.validate_buffer.sample(128)
-
+                rl_batch = self.rl_replay_buffer.sample(4)
+                bc_batch = self.bc_replay_buffer.sample(8)
+                val_batch = self.validate_buffer.sample(8)
+            print(f"Sampling batches took {time.time() - start:.4f} seconds")
             losses = self.sac_agent.update(rl_batch, bc_batch, val_batch)
             self.loss_visualizer.update(losses)
 
