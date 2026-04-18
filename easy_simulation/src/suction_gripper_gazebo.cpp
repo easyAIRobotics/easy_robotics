@@ -78,9 +78,7 @@ void SuctionGripperPlugin::ScanForContactAndAttach(
     gz::sim::EntityComponentManager &ecm)
 {
   // Get the contact sensor component from the suction link
-  std::cout << "[SuctionGripperPlugin] Get parent link of the collision" << std::endl;
   auto suction_link = ecm.Component<gz::sim::components::ParentEntity>(suction_link_collision_)->Data();
-  std::cout << "[SuctionGripperPlugin] Scanning for contacts..." << std::endl;
   auto contacts =
       ecm.Component<gz::sim::components::ContactSensorData>(suction_link_collision_);
 
@@ -89,8 +87,6 @@ void SuctionGripperPlugin::ScanForContactAndAttach(
     std::cerr << "[SuctionGripperPlugin] No contact sensor data found on suction link!" << std::endl;
     return;
   }
-
-  std::cout << "[SuctionGripperPlugin] Number of contacts: " << contacts->Data().contact_size() << std::endl;
 
   // Iterate safely
   for (const auto &c : contacts->Data().contact())

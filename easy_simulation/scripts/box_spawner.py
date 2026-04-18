@@ -15,9 +15,9 @@ import gz.transport13 as gz_transport
 from tf_transformations import quaternion_from_euler
 import threading
 
-NUM_BOXES = 10
-NUM_TARGET_BOXES = 5
-AREA_RADIUS = 0.3
+NUM_BOXES = 3
+NUM_TARGET_BOXES = 3
+AREA_RADIUS = 0.35
 WORLD_NAME = "empty"     # Change if using another world name
 SDF_TEMPLATE = """
     <?xml version="1.0" ?>
@@ -58,7 +58,7 @@ class BoxSpawner:
             "storage_bin_green": [0.0, -0.5, 1.15],
         }
 
-        self.center_pose = [0.4, 0.0, 1.6]
+        self.center_pose = [0.3, 0.0, 1.6]
         self.std_pose = [AREA_RADIUS / 3, AREA_RADIUS / 3, 0.0]
         
         self.respawn_boxes_srv = self.ros_node.create_service(

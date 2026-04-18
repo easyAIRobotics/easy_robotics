@@ -26,6 +26,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         # --------------------
         self.images = np.zeros((capacity, M, N, C), dtype=np.float32)
         self.target_images = np.zeros((capacity, *target_image_shape), dtype=np.float32)
+        self.original_target_images = np.zeros((capacity, *target_image_shape), dtype=np.float32)
         self.skills = np.zeros((capacity, skill_dim), dtype=np.float32)
         self.robot_states = np.zeros((capacity, robot_state_dim), dtype=np.float32)
 
@@ -34,6 +35,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         # --------------------
         self.next_images = np.zeros((capacity, M, N, C), dtype=np.float32)
         self.next_target_images = np.zeros((capacity, *target_image_shape), dtype=np.float32)
+        self.next_original_target_images = np.zeros((capacity, *target_image_shape), dtype=np.float32)
         self.next_skills = np.zeros((capacity, skill_dim), dtype=np.float32)
         self.next_robot_states = np.zeros((capacity, robot_state_dim), dtype=np.float32)
 
@@ -52,6 +54,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         self,
         image,
         target_image,
+        original_target_image,
         skill,
         robot_state,
         j_action,
@@ -59,12 +62,14 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         reward,
         next_image,
         next_target_image,
+        next_original_target_image,
         next_skill,
         next_robot_state,
         done
     ):
         self.images[self.ptr] = image
         self.target_images[self.ptr] = target_image
+        self.original_target_images[self.ptr] = original_target_image
         self.skills[self.ptr] = skill
         self.robot_states[self.ptr] = robot_state
         self.dones[self.ptr] = done
@@ -74,6 +79,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
 
         self.next_images[self.ptr] = next_image
         self.next_target_images[self.ptr] = next_target_image
+        self.next_original_target_images[self.ptr] = next_original_target_image
         self.next_skills[self.ptr] = next_skill
         self.next_robot_states[self.ptr] = next_robot_state
 
@@ -83,21 +89,29 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
     # ======================================================
     # Sample batch
     # ======================================================
-    def sample(self, batch_size):
+    def sample(self, batch_size, recent=False):
         if self.buffer_size == 0:
             return None
-            
-        idx = np.random.randint(0, self.buffer_size, size=batch_size)
+        
+        alpha = 0.0  # tune this (higher = more bias to recent)
+        if recent:
+            alpha = 0.01
+        weights = np.exp(alpha * np.arange(self.buffer_size))
+        prob = weights / weights.sum()
+
+        idx = np.random.choice(self.buffer_size, size=batch_size, p=prob)
 
         # -------- Current --------
         images = torch.from_numpy(self.images[idx]).to(self.device)
         target_images = torch.from_numpy(self.target_images[idx]).to(self.device)
+        original_target_images = torch.from_numpy(self.original_target_images[idx]).to(self.device)
         skills = torch.from_numpy(self.skills[idx]).to(self.device)
         robot_states = torch.from_numpy(self.robot_states[idx]).to(self.device)
 
         # -------- Next --------
         next_images = torch.from_numpy(self.next_images[idx]).to(self.device)
         next_target_images = torch.from_numpy(self.next_target_images[idx]).to(self.device)
+        next_original_target_images = torch.from_numpy(self.next_original_target_images[idx]).to(self.device)
         next_skills = torch.from_numpy(self.next_skills[idx]).to(self.device)
         next_robot_states = torch.from_numpy(self.next_robot_states[idx]).to(self.device)
 
@@ -109,16 +123,18 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         # Convert images to NCHW (PyTorch format)
         images = images.permute(0, 3, 1, 2)
         target_images = target_images.permute(0, 3, 1, 2)
+        original_target_images = original_target_images.permute(0, 3, 1, 2)
         next_images = next_images.permute(0, 3, 1, 2)
         next_target_images = next_target_images.permute(0, 3, 1, 2)
+        next_original_target_images = next_original_target_images.permute(0, 3, 1, 2)
 
         return (
-            (images, target_images, skills, robot_states),
+            (images, target_images, original_target_images, skills, robot_states),
             j_actions,
             e_actions,
             rewards,
             dones,
-            (next_images, next_target_images, next_skills, next_robot_states),
+            (next_images, next_target_images, next_original_target_images, next_skills, next_robot_states),
         )
 
 
@@ -129,11 +145,13 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         # -------- Current --------
         images = torch.from_numpy(self.images[:self.buffer_size]).to(self.device)
         target_images = torch.from_numpy(self.target_images[:self.buffer_size]).to(self.device)
+        original_target_images = torch.from_numpy(self.original_target_images[:self.buffer_size]).to(self.device)
         skills = torch.from_numpy(self.skills[:self.buffer_size]).to(self.device)
         robot_states = torch.from_numpy(self.robot_states[:self.buffer_size]).to(self.device)
         # -------- Next --------
         next_images = torch.from_numpy(self.next_images[:self.buffer_size]).to(self.device)
         next_target_images = torch.from_numpy(self.next_target_images[:self.buffer_size]).to(self.device)
+        next_original_target_images = torch.from_numpy(self.next_original_target_images[:self.buffer_size]).to(self.device)
         next_skills = torch.from_numpy(self.next_skills[:self.buffer_size]).to(self.device)
         next_robot_states = torch.from_numpy(self.next_robot_states[:self.buffer_size]).to(self.device)
         
@@ -146,12 +164,12 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         next_images = next_images.permute(0, 3, 1, 2)
         
         return (
-            (images, target_images, skills, robot_states),
+            (images, target_images, original_target_images, skills, robot_states),
             j_actions,
             e_actions,
             rewards,
             dones,
-            (next_images, next_target_images, next_skills, next_robot_states),
+            (next_images, next_target_images, next_original_target_images, next_skills, next_robot_states),
         )
         
 
@@ -164,6 +182,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
             file_path,
             images=self.images[:self.buffer_size],
             target_images=self.target_images[:self.buffer_size],
+            original_target_images=self.original_target_images[:self.buffer_size],
             skills=self.skills[:self.buffer_size],
             robot_states=self.robot_states[:self.buffer_size],
             j_actions=self.j_actions[:self.buffer_size],
@@ -172,6 +191,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
             dones=self.dones[:self.buffer_size],
             next_images=self.next_images[:self.buffer_size],
             next_target_images=self.next_target_images[:self.buffer_size],
+            next_original_target_images=self.next_original_target_images[:self.buffer_size],
             next_skills=self.next_skills[:self.buffer_size],
             next_robot_states=self.next_robot_states[:self.buffer_size],
         )
@@ -181,6 +201,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         data = np.load(file_path)
         self.images[:data['images'].shape[0]] = data['images']
         self.target_images[:data['target_images'].shape[0]] = data['target_images']
+        self.original_target_images[:data['original_target_images'].shape[0]] = data['original_target_images']
         self.skills[:data['skills'].shape[0]] = data['skills']
         self.robot_states[:data['robot_states'].shape[0]] = data['robot_states']
         self.j_actions[:data['j_actions'].shape[0]] = data['j_actions']
@@ -189,6 +210,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
         self.dones[:data['dones'].shape[0]] = data['dones']
         self.next_images[:data['next_images'].shape[0]] = data['next_images']
         self.next_target_images[:data['next_target_images'].shape[0]] = data['next_target_images']
+        self.next_original_target_images[:data['next_original_target_images'].shape[0]] = data['next_original_target_images']
         self.next_skills[:data['next_skills'].shape[0]] = data['next_skills']
         self.next_robot_states[:data['next_robot_states'].shape[0]] = data['next_robot_states']
         

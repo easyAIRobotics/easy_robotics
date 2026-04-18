@@ -109,7 +109,7 @@ class PlacingExpert:
                 
                 goal_req = ExecuteGoal.Request()
                 goal_req.speed_factor = 0.4
-                goal_req.planning_time = 1.0
+                goal_req.planning_time = 2.0
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
                 

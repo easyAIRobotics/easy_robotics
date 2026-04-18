@@ -14,7 +14,7 @@ from easy_interfaces.srv import SetString
 
 import random
 
-RL_BUFFER_CAPACITY = 1000
+RL_BUFFER_CAPACITY = 10000
 BC_BUFFER_CAPACITY = 50000
 VAL_BUFFER_CAPACITY = 2000
 
@@ -100,6 +100,7 @@ class SkillExecutionAgentInterface(AgentInterface):
         state_dict = {
             "image": self.state_interface.get_image(),
             "target_image": self.state_interface.get_target_image(),
+            "original_target_image": self.state_interface.get_original_target_image(),
             "skill": self.state_interface.get_skill(),
             "robot_state": self.state_interface.get_robot_state()
         }
@@ -127,8 +128,8 @@ class SkillExecutionAgentInterface(AgentInterface):
     def _update_worker(self):
         try:
             with self._buffer_lock:
-                rl_batch = self.rl_replay_buffer.sample(64)
-                bc_batch = self.bc_replay_buffer.sample(128)
+                rl_batch = self.rl_replay_buffer.sample(128, recent=True)
+                bc_batch = self.bc_replay_buffer.sample(1024, recent=False)
                 val_batch = self.validate_buffer.sample(128)
 
             losses = self.sac_agent.update(rl_batch, bc_batch, val_batch)
@@ -149,6 +150,7 @@ class SkillExecutionAgentInterface(AgentInterface):
             self.rl_replay_buffer.add(
                 image=transition["image"],
                 target_image=transition["target_image"],
+                original_target_image=transition["original_target_image"],
                 skill=transition["skill"],
                 robot_state=transition["robot_state"],
                 j_action=transition["j_action"],
@@ -157,6 +159,7 @@ class SkillExecutionAgentInterface(AgentInterface):
                 done=transition["done"],
                 next_image=transition["next_image"],
                 next_target_image=transition["next_target_image"],
+                next_original_target_image=transition["next_original_target_image"],
                 next_skill=transition["next_skill"],
                 next_robot_state=transition["next_robot_state"],
             )
@@ -170,6 +173,7 @@ class SkillExecutionAgentInterface(AgentInterface):
             self.bc_replay_buffer.add(
                 image=transition["image"],
                 target_image=transition["target_image"],
+                original_target_image=transition["original_target_image"],
                 skill=transition["skill"],
                 robot_state=transition["robot_state"],
                 j_action=transition["j_action"],
@@ -178,6 +182,7 @@ class SkillExecutionAgentInterface(AgentInterface):
                 done=transition["done"],
                 next_image=transition["next_image"],
                 next_target_image=transition["next_target_image"],
+                next_original_target_image=transition["next_original_target_image"],
                 next_skill=transition["next_skill"],
                 next_robot_state=transition["next_robot_state"],
             )

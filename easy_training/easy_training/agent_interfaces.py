@@ -13,9 +13,10 @@ from easy_training.utils import LossVisualizer
 class AgentMode(Enum):
     IDLE = 0
     SELF_LEARNING = 1
-    BEHAVIOR_CLONING = 2
-    IDLE_UPDATING = 3
-    PERFORMING = 4
+    DETERMINISTIC_POLICY = 2
+    BEHAVIOR_CLONING = 3
+    IDLE_UPDATING = 4
+    PERFORMING = 5
     
     
 class ReplayBuffer:
@@ -131,8 +132,16 @@ class AgentInterface:
                 self.action_interface.wait_for_next_state()
                 continue
             
-            if self.mode_ == AgentMode.SELF_LEARNING:
+            if self.mode_ == AgentMode.DETERMINISTIC_POLICY:
                 action = self.infer_action(deterministic=True)
+                if not action:
+                    continue
+                _, _ = self.action_interface.perform(action, self.state_interface)
+                self.update()
+                continue
+            
+            if self.mode_ == AgentMode.SELF_LEARNING:
+                action = self.infer_action(deterministic=False)
                 if not action:
                     continue
                 reward, transition = self.action_interface.perform(action, self.state_interface)
@@ -162,6 +171,8 @@ class AgentInterface:
         print(f"[AgentInterface] Setting mode to: {mode}", flush=True)
         if mode == "training/auto":
             self.mode_ = AgentMode.SELF_LEARNING
+        elif mode == "training/exec":
+            self.mode_ = AgentMode.DETERMINISTIC_POLICY
         elif mode == "training/manual":
             self.mode_ = AgentMode.BEHAVIOR_CLONING
         elif mode == "training/stop":

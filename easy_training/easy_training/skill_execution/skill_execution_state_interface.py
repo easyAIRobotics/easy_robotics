@@ -33,10 +33,10 @@ SKILL_VOCAB = {
     "move": np.array([0.0, 0.0, 1.0], dtype=np.float32)
 }
 
-SUCCESS_PICK_REWARD = 1000.0
+SUCCESS_PICK_REWARD = 10.0
 FAILED_PICK_PENALTY = 0.0
 
-SUCCESS_DROP_REWARD = 1000.0
+SUCCESS_DROP_REWARD = 10.0
 FAILED_DROP_PENALTY = -10.0
 
 DISTANCE_REWARD_SCALE = 2.0
@@ -99,6 +99,7 @@ class SkillExecutionStateInterface(StateInterface):
         # Depth observation
         self.state["point_image"] = None
         self.state["target_image"] = None
+        self.state["original_target_image"] = None
         self.depth_image = self._node.create_subscription(
             Image,
             "camera/depth",
@@ -123,6 +124,7 @@ class SkillExecutionStateInterface(StateInterface):
         self.selected_bbox = None
         def _bounding_box_callback(msg: BoundingBox):
             self.selected_bbox = msg
+            self.state['original_target_image'] = None
         self.bounding_box_sub = self._node.create_subscription(
             BoundingBox,
             "selected_box",
@@ -234,6 +236,8 @@ class SkillExecutionStateInterface(StateInterface):
         self.state['point_image'] = points_image[::4, ::4]
         target_full_size = points_image[bb_min_y:bb_max_y, bb_min_x:bb_max_x]
         self.state['target_image'] = cv2.resize(target_full_size, TARGET_IMAGE_SIZE, interpolation=cv2.INTER_AREA)
+        if self.state['original_target_image'] is None:
+            self.state['original_target_image'] = self.state['target_image'].copy()
         
     def _lookup_depth_transform(self):
         """Lookup the transform from camera frame to base frame."""
@@ -274,6 +278,7 @@ class SkillExecutionStateInterface(StateInterface):
 
         points_image = self.state['point_image']   # (H, W, 3) or (N, 3)
         target_image = self.state.get('target_image', None)  # (h, w, 3) or (M, 3)
+        original_target_image = self.state.get('original_target_image', None)  # (h, w, 3) or (M, 3)
 
         # --- Flatten to (N, 3) ---
         points_bg = points_image.reshape(-1, 3)
@@ -294,6 +299,16 @@ class SkillExecutionStateInterface(StateInterface):
             points = np.vstack((points_bg, points_target))
         else:
             points = points_bg
+            
+        if original_target_image is not None:
+            points_original_target = original_target_image.reshape(-1, 3)
+
+            # Mask = 2.0 for original target
+            mask_original_target = np.ones((points_original_target.shape[0], 1), dtype=np.float32) * 2.0
+            points_original_target = np.hstack((points_original_target, mask_original_target))  # (M, 4)
+
+            # --- Concatenate ---
+            points = np.vstack((points, points_original_target))
 
         # Ensure float32
         points = points.astype(np.float32)
@@ -337,6 +352,9 @@ class SkillExecutionStateInterface(StateInterface):
     def get_target_image(self):
         return self.state["target_image"]
     
+    def get_original_target_image(self):
+        return self.state["original_target_image"]
+    
     def get_skill(self):
         return SKILL_VOCAB[self.action]
     
@@ -359,8 +377,8 @@ class SkillExecutionStateInterface(StateInterface):
     def _get_picking_reward(self) -> float:
         reward = 0.0
         # Reward based on how close the end-effector is to the object (using point cloud mask)
-        if self.state["point_image"] is not None:
-            object_center = np.mean(self.state["target_image"], axis=(0, 1))
+        if self.state["original_target_image"] is not None:
+            object_center = np.mean(self.state["original_target_image"], axis=(0, 1))
             ee_position = np.array(self.state["eef_pose"][:3])
             distance = np.linalg.norm(ee_position - object_center)
             reward -= DISTANCE_REWARD_SCALE * (distance ** 2)  # Closer gets higher reward
@@ -381,8 +399,8 @@ class SkillExecutionStateInterface(StateInterface):
         reward = 0.0
         self.state["done"] = 0.0
         # Reward based on how close the end-effector is to the target place position
-        if self.state["point_image"] is not None:
-            object_center = np.mean(self.state["target_image"], axis=(0, 1))
+        if self.state["original_target_image"] is not None:
+            object_center = np.mean(self.state["original_target_image"], axis=(0, 1))
             object_center[2] = DROPPING_HEIGHT
             ee_position = np.array(self.state["eef_pose"][:3])
             diff_vector = ee_position - object_center
