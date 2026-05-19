@@ -18,19 +18,29 @@ MAX_RANGE = np.pi
 
 torch.autograd.set_detect_anomaly(True)
 
+def check(name, x):
+    if not torch.isfinite(x).all():
+        print(f"❌ NaN/Inf in {name}")
+        print("NaN:", torch.isnan(x).sum().item(),
+            "Inf:", torch.isinf(x).sum().item())
+        return True
+    return False
+    
 class SceneImageEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=7, stride=2, padding=3)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
+        self.conv1 = nn.Conv2d(3, 3, kernel_size=3, stride=2, padding=1) # 30x40 → 15x20z
+        self.conv2 = nn.Conv2d(3, 4, kernel_size=3, stride=2, padding=1) # 15x20 → 8x10
+        self.conv3 = nn.Conv2d(4, 8, kernel_size=3, stride=2, padding=1) # 8x10 → 4x5
+        self.conv4 = nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1) # 4x5 → 2x3
 
-        self.fully_connected = nn.Linear(32 * 4 * 5, 256)
+        self.fully_connected = nn.Linear(16 * 2 * 3, 64)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
         x = torch.flatten(x, start_dim=1)
         x = F.relu(self.fully_connected(x))
         return x
@@ -38,42 +48,44 @@ class SceneImageEncoder(nn.Module):
 class TargetImageEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=7, stride=2, padding=3)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
+        self.conv1 = nn.Conv2d(3, 4, kernel_size=3, stride=2, padding=1) # 16x16 → 8x8
+        self.conv2 = nn.Conv2d(4, 8, kernel_size=3, stride=2, padding=1) # 8x8 → 4x4
+        self.conv3 = nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1) # 4x4 → 2x2
+        self.conv4 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1) # 2x2 → 1x1
 
-        self.fully_connected = nn.Linear(32 * 2 * 2, 256)
+        self.fully_connected = nn.Linear(32 * 1 * 1, 32)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
         x = torch.flatten(x, start_dim=1)
         x = F.relu(self.fully_connected(x))
         return x
         
         
 class SkillExecutionPolicyNetwork(nn.Module):
-    def __init__(self, action_dim, hidden_dim=1024):
+    def __init__(self, action_dim, hidden_dim=64):
         super().__init__()
 
         self.scene_encoder = SceneImageEncoder()
         self.target_encoder = TargetImageEncoder()
         self.original_target_encoder = TargetImageEncoder()
-        state_dim = 256 + 256 + 256 + 3 + 15 + 1
+        state_dim = 64 + 32 + 32 + 3 + 15 + 1
 
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-        # self.fc4 = nn.Linear(hidden_dim, hidden_dim)
-        # self.fc5 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc4 = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.fc5 = nn.Linear(hidden_dim // 2, hidden_dim // 4)
 
         # 6 continuous
-        self.mean = nn.Linear(hidden_dim, action_dim - 1)
-        self.log_std = nn.Linear(hidden_dim, action_dim - 1)
+        self.mean = nn.Linear(hidden_dim // 4, action_dim - 1)
+        self.log_std = nn.Linear(hidden_dim // 4, action_dim - 1)
 
         # 1 binary
-        self.logit = nn.Linear(hidden_dim, 1)
+        self.logit = nn.Linear(hidden_dim // 4, 1)
 
         self.LOG_STD_MIN = -10
         self.LOG_STD_MAX = -5
@@ -87,12 +99,12 @@ class SkillExecutionPolicyNetwork(nn.Module):
         h1 = F.relu(self.fc1(state))
         h2 = F.relu(self.fc2(h1)) + h1
         h3 = F.relu(self.fc3(h2)) + h2
-        # h4 = F.relu(self.fc4(h3)) + h3
-        # h5 = F.relu(self.fc5(h4)) + h4
+        h4 = F.relu(self.fc4(h3))
+        h5 = F.relu(self.fc5(h4))
 
-        mean = self.mean(h3)
-        log_std = torch.clamp(self.log_std(h3), self.LOG_STD_MIN, self.LOG_STD_MAX)
-        logit = self.logit(h3)
+        mean = self.mean(h5)
+        log_std = torch.clamp(self.log_std(h5), self.LOG_STD_MIN, self.LOG_STD_MAX)
+        logit = self.logit(h5)
 
         return mean, log_std, logit
 
@@ -131,29 +143,29 @@ class SkillExecutionPolicyNetwork(nn.Module):
 
 
 class SkillExecutionCriticNetwork(nn.Module):
-    def __init__(self, action_dim, hidden_dim=1024):
+    def __init__(self, action_dim, hidden_dim=64):
         super().__init__()
 
         self.scene_encoder = SceneImageEncoder()
         self.target_encoder = TargetImageEncoder()
         self.original_target_encoder = TargetImageEncoder()
 
-        state_dim = 256 + 256 + 256 + 3 + 15 + 1
+        state_dim = 64 + 32 + 32 + 3 + 15 + 1
 
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-        # self.fc4 = nn.Linear(hidden_dim, hidden_dim)
-        # self.fc5 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc4 = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.fc5 = nn.Linear(hidden_dim // 2, hidden_dim // 4)
 
         self.fc1_ = nn.Linear(state_dim + action_dim, hidden_dim)
         self.fc2_ = nn.Linear(hidden_dim, hidden_dim)
         self.fc3_ = nn.Linear(hidden_dim, hidden_dim)
-        # self.fc4_ = nn.Linear(hidden_dim, hidden_dim)
-        # self.fc5_ = nn.Linear(hidden_dim, hidden_dim)
+        self.fc4_ = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.fc5_ = nn.Linear(hidden_dim // 2, hidden_dim // 4)
 
-        self.q = nn.Linear(hidden_dim, 1)
-        self.q_ = nn.Linear(hidden_dim, 1)
+        self.q = nn.Linear(hidden_dim // 4, 1)
+        self.q_ = nn.Linear(hidden_dim // 4, 1)
 
 
     def forward(self, img, target_img, original_target_img, skill, robot, action):
@@ -167,17 +179,17 @@ class SkillExecutionCriticNetwork(nn.Module):
         h1 = F.relu(self.fc1(x))
         h2 = F.relu(self.fc2(h1)) + h1
         h3 = F.relu(self.fc3(h2)) + h2
-        # h4 = F.relu(self.fc4(h3)) + h3
-        # h5 = F.relu(self.fc5(h4)) + h4
+        h4 = F.relu(self.fc4(h3))
+        h5 = F.relu(self.fc5(h4))
 
         # Q2
         h1_ = F.relu(self.fc1_(x))
         h2_ = F.relu(self.fc2_(h1_)) + h1_
         h3_ = F.relu(self.fc3_(h2_)) + h2_
-        # h4_ = F.relu(self.fc4_(h3_)) + h3_
-        # h5_ = F.relu(self.fc5_(h4_)) + h4_
+        h4_ = F.relu(self.fc4_(h3_))
+        h5_ = F.relu(self.fc5_(h4_))
 
-        return self.q(h3), self.q_(h3_)
+        return self.q(h5), self.q_(h5_)
     
     
 JOINT_WEIGHT = 50.0
@@ -185,6 +197,7 @@ SUCTION_WEIGHT = 1.0
 ACTION_MODE = "joint_positions"  # "eef_pose" or "joint_positions"
 # ACTION_MODE = "eef_pose"
 ACTION_DIM = 10 if ACTION_MODE == "eef_pose" else 7
+TARGET_ENTROPY = -6
 
 import copy
 from rclpy.node import Node
@@ -194,16 +207,17 @@ class SkillExecutionSACAgent(SACAgent):
         self, node: Node,
         gamma=0.98,
         tau=0.02,
-        alpha=0.0,
+        alpha=0.05,
         bc_weight=10.0,
         lr=5e-4
     ):
         super().__init__(node, "skill_execution_sac_agent")
         self.gamma = gamma
         self.tau = tau
-        self.alpha = alpha
+        self.target_entropy = TARGET_ENTROPY
         self.bc_weight = bc_weight
         self.step = 0
+        self.alpha = alpha
         
         if ACTION_MODE == "joint_positions":
             self.gripper_act_id = 6
@@ -228,7 +242,7 @@ class SkillExecutionSACAgent(SACAgent):
         # Optimizers
         self.policy_optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
         self.q_optimizer = torch.optim.Adam(self.q.parameters(), lr=lr)
-        
+     
         
     def infer_action(self, state: dict, deterministic=True):
         rl_img, rl_target_img, rl_original_target_img, obs_skill, obs_robot = state["image"], state["target_image"], state["original_target_image"], state["skill"], state["robot_state"]
@@ -271,7 +285,7 @@ class SkillExecutionSACAgent(SACAgent):
         if ACTION_MODE == "joint_positions":
             action[..., :6] *= self.max_range
         else:
-            action[..., :3] *= self.max_range
+            action[..., :9] *= self.max_range
 
         # delta rotation scaling
         # delta_rot = action[..., 3:6] * self.delta_angle_max
@@ -282,192 +296,429 @@ class SkillExecutionSACAgent(SACAgent):
         return action
     
 
-    def update(self, rl_samples=None, bc_samples=None, val_samples=None):
+    def update(
+        self,
+        rl_samples=None,
+        past_rl_samples=None,
+        bc_samples=None,
+        past_bc_samples=None,
+        val_samples=None,
+    ):
         start_update_time = time.time()
         torch.cuda.set_device(0)
-        if rl_samples is None and bc_samples is None:
+
+        ########################################
+        # --------- Collect Sources ------------
+        ########################################
+
+        sample_sources = [
+            ("RL", rl_samples, False),
+            ("Past RL", past_rl_samples, False),
+            ("BC", bc_samples, True),
+            ("Past BC", past_bc_samples, True),
+        ]
+
+        sample_sources = [s for s in sample_sources if s[1] is not None]
+
+        if not sample_sources:
             return None
-        
-        if rl_samples is not None:
-            print(f"[SkillExecutionSACAgent] Updating with RL samples. Batch size: {rl_samples[0][0].shape[0]}", flush=True)
-        if bc_samples is not None:
-            print(f"[SkillExecutionSACAgent] Updating with BC samples. Batch size: {bc_samples[0][0].shape[0]}", flush=True)
 
         ########################################
-        # --------- Build Combined Batch ------
+        # --------- Accumulators ---------------
         ########################################
 
-        imgs = []
-        target_imgs = []
-        original_target_imgs = []
-        skills = []
-        robots = []
-        actions_list = []
-        rewards_list = []
-        dones_list = []
-        next_imgs = []
-        next_target_imgs = []
-        next_original_target_imgs = []
-        next_skills = []
-        next_robots = []
+        acc = {
+            "img": [],
+            "target_img": [],
+            "original_target_img": [],
+            "skill": [],
+            "robot": [],
+            "actions": [],
+            "rewards": [],
+            "dones": [],
+            "next_img": [],
+            "next_target_img": [],
+            "next_original_target_img": [],
+            "next_skill": [],
+            "next_robot": [],
+        }
 
-        # ---- RL ----
-        if rl_samples is not None:
-            (rl_img, rl_target_img, rl_original_target_img, rl_skill, rl_robot), rl_j_actions, rl_e_actions, rl_rewards, rl_dones, \
-            (rl_next_img, rl_next_target_img, rl_next_original_target_img, rl_next_skill, rl_next_robot) = rl_samples
+        bc_acc = {
+            "img": [],
+            "target_img": [],
+            "original_target_img": [],
+            "skill": [],
+            "robot": [],
+            "actions": [],
+        }
 
-            imgs.append(rl_img)
-            target_imgs.append(rl_target_img)
-            original_target_imgs.append(rl_original_target_img)
-            skills.append(rl_skill)
-            robots.append(rl_robot)
-            if ACTION_MODE == "joint_positions":
-                actions_list.append(rl_j_actions)
-            else:
-                actions_list.append(rl_e_actions)
-            rewards_list.append(rl_rewards)
-            dones_list.append(rl_dones)
+        ########################################
+        # --------- Parse Samples --------------
+        ########################################
 
-            next_imgs.append(rl_next_img)
-            next_target_imgs.append(rl_next_target_img)
-            next_original_target_imgs.append(rl_next_original_target_img)
-            next_skills.append(rl_next_skill)
-            next_robots.append(rl_next_robot)
+        def unpack_samples(samples):
+            (
+                (img, target_img, original_target_img, skill, robot),
+                j_actions,
+                e_actions,
+                rewards,
+                dones,
+                (
+                    next_img,
+                    next_target_img,
+                    next_original_target_img,
+                    next_skill,
+                    next_robot,
+                ),
+            ) = samples
 
-        # ---- BC ----
-        if bc_samples is not None:
-            (bc_img, bc_target_img, bc_original_target_img, bc_skill, bc_robot), bc_j_actions, bc_e_actions, bc_rewards, bc_dones, \
-            (bc_next_img, bc_next_target_img, bc_next_original_target_img, bc_next_skill, bc_next_robot) = bc_samples
+            actions = (
+                j_actions
+                if ACTION_MODE == "joint_positions"
+                else e_actions
+            )
 
-            imgs.append(bc_img)
-            target_imgs.append(bc_target_img)
-            original_target_imgs.append(bc_original_target_img)
-            skills.append(bc_skill)
-            robots.append(bc_robot)
-            if ACTION_MODE == "joint_positions":
-                actions_list.append(bc_j_actions)
-            else:
-                actions_list.append(bc_e_actions)
-            rewards_list.append(bc_rewards)
-            dones_list.append(bc_dones)
+            return {
+                "img": img,
+                "target_img": target_img,
+                "original_target_img": original_target_img,
+                "skill": skill,
+                "robot": robot,
+                "actions": actions,
+                "rewards": rewards,
+                "dones": dones,
+                "next_img": next_img,
+                "next_target_img": next_target_img,
+                "next_original_target_img": next_original_target_img,
+                "next_skill": next_skill,
+                "next_robot": next_robot,
+            }
 
-            next_imgs.append(bc_next_img)
-            next_target_imgs.append(bc_next_target_img)
-            next_original_target_imgs.append(bc_next_original_target_img)
-            next_skills.append(bc_next_skill)
-            next_robots.append(bc_next_robot)
+        ########################################
+        # --------- Load All Sources -----------
+        ########################################
 
-        # Concatenate only what exists
-        img = torch.cat(imgs, dim=0)
-        target_img = torch.cat(target_imgs, dim=0)
-        original_target_img = torch.cat(original_target_imgs, dim=0)
-        skill = torch.cat(skills, dim=0)
-        robot = torch.cat(robots, dim=0)
-        actions = torch.cat(actions_list, dim=0)
+        for name, samples, is_bc in sample_sources:
+
+            batch = unpack_samples(samples)
+
+            print(
+                f"[SkillExecutionSACAgent] Updating with {name}. "
+                f"Batch size: {batch['img'].shape[0]}",
+                flush=True,
+            )
+
+            if not is_bc:
+                for key in acc.keys():
+                    acc[key].append(batch[key])
+
+            if is_bc:
+                for key in bc_acc.keys():
+                    bc_acc[key].append(batch[key])
+
+        ########################################
+        # --------- Concatenate ----------------
+        ########################################
+
+        def cat_dict(d):
+            return {
+                k: torch.cat(v, dim=0)
+                for k, v in d.items()
+                if len(v) > 0
+            }
+
+        batch = cat_dict(acc)
+
+        img = batch["img"]
+        target_img = batch["target_img"]
+        original_target_img = batch["original_target_img"]
+        skill = batch["skill"]
+        robot = batch["robot"]
+
+        actions = batch["actions"].clone()
+        rewards = batch["rewards"]
+        dones = batch["dones"]
+
+        next_img = batch["next_img"]
+        next_target_img = batch["next_target_img"]
+        next_original_target_img = batch["next_original_target_img"]
+        next_skill = batch["next_skill"]
+        next_robot = batch["next_robot"]
+
+        ########################################
+        # --------- Normalize Actions ----------
+        ########################################
+
         if ACTION_MODE == "joint_positions":
-            actions[:, :6] = actions[:, :6] / self.max_range
+            actions[:, :6] /= self.max_range
         else:
-            actions[:, :3] = actions[:, :3] / self.max_range
-        rewards = torch.cat(rewards_list, dim=0)
-        dones = torch.cat(dones_list, dim=0)
-
-        next_img = torch.cat(next_imgs, dim=0)
-        next_target_img = torch.cat(next_target_imgs, dim=0)
-        next_original_target_img = torch.cat(next_original_target_imgs, dim=0)
-        next_skill = torch.cat(next_skills, dim=0)
-        next_robot = torch.cat(next_robots, dim=0)
+            actions[:, :9] /= self.max_range
 
         ########################################
-        # -------- Critic Update ---------------
+        # --------- Critic Update --------------
         ########################################
 
         with torch.no_grad():
-            next_action, next_log_prob = self.policy.sample(next_img, next_target_img, next_original_target_img, next_skill, next_robot)
-            target_q1, target_q2 = self.target_q(next_img, next_target_img, next_original_target_img, next_skill, next_robot, next_action)
-            target_v = torch.min(target_q1, target_q2) - self.alpha * next_log_prob
-            q_target = rewards + (1 - dones) * self.gamma * target_v
 
-        q1_pred, q2_pred = self.q(img, target_img, original_target_img, skill, robot, actions)
+            next_action, next_log_prob = self.policy.sample(
+                next_img,
+                next_target_img,
+                next_original_target_img,
+                next_skill,
+                next_robot,
+            )
+
+            target_q1, target_q2 = self.target_q(
+                next_img,
+                next_target_img,
+                next_original_target_img,
+                next_skill,
+                next_robot,
+                next_action,
+            )
+
+            target_q = torch.min(target_q1, target_q2)
+
+            if next_log_prob.ndim == 1:
+                next_log_prob = next_log_prob.unsqueeze(-1)
+
+            target_v = target_q - self.alpha * next_log_prob
+
+            q_target = (
+                rewards
+                + (1.0 - dones) * self.gamma * target_v
+            )
+
+        q1_pred, q2_pred = self.q(
+            img,
+            target_img,
+            original_target_img,
+            skill,
+            robot,
+            actions,
+        )
 
         q1_loss = F.mse_loss(q1_pred, q_target)
         q2_loss = F.mse_loss(q2_pred, q_target)
+
         critic_loss = q1_loss + q2_loss
 
         self.q_optimizer.zero_grad()
+
         critic_loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(
+            self.q.parameters(),
+            10.0,
+        )
+
         self.q_optimizer.step()
 
         ########################################
-        # -------- Policy Update ---------------
+        # --------- Freeze Critic --------------
         ########################################
-        new_actions, log_prob = self.policy.sample(img, target_img, original_target_img, skill, robot)
-        with torch.no_grad():
-            q1_new, q2_new = self.q(img, target_img, original_target_img, skill, robot, new_actions)
+
+        for p in self.q.parameters():
+            p.requires_grad = False
+
+        ########################################
+        # --------- Policy SAC Loss ------------
+        ########################################
+
+        new_actions, log_prob = self.policy.sample(
+            img,
+            target_img,
+            original_target_img,
+            skill,
+            robot,
+        )
+
+        q1_new, q2_new = self.q(
+            img,
+            target_img,
+            original_target_img,
+            skill,
+            robot,
+            new_actions,
+        )
+
         q_min = torch.min(q1_new, q2_new)
 
-        sac_loss = (self.alpha * log_prob - q_min).mean()
+        if log_prob.ndim == 1:
+            log_prob = log_prob.unsqueeze(-1)
 
-        # ----- BC imitation loss (only if BC exists) -----
-        if bc_samples is not None:
-            bc_batch_size = bc_img.shape[0]
+        sac_loss = (
+            self.alpha * log_prob - q_min
+        ).mean()
 
-            bc_actions = actions[-bc_batch_size:]
-            bc_actions_pred, logit = self.policy.deterministic(bc_img, bc_target_img, bc_original_target_img, bc_skill, bc_robot)
-            
-            bc_joint_loss = F.mse_loss(bc_actions_pred[:, :self.gripper_act_id], bc_actions[:, :self.gripper_act_id])
-            suction_loss = F.binary_cross_entropy_with_logits(logit.squeeze(-1), bc_actions[:, self.gripper_act_id])
-            
-            bc_loss = JOINT_WEIGHT * bc_joint_loss + SUCTION_WEIGHT * suction_loss
+        ########################################
+        # --------- BC Loss --------------------
+        ########################################
 
-        else:
-            bc_loss = 0.0
+        bc_loss = torch.tensor(
+            0.0,
+            device=img.device,
+        )
 
-        total_policy_loss = sac_loss + self.bc_weight * bc_loss
-        total_policy_loss = self.bc_weight * bc_loss
+        bc_joint_loss = torch.tensor(
+            0.0,
+            device=img.device,
+        )
+
+        if len(bc_acc["img"]) > 0:
+
+            bc_batch = cat_dict(bc_acc)
+
+            bc_img = bc_batch["img"]
+            bc_target_img = bc_batch["target_img"]
+            bc_original_target_img = bc_batch["original_target_img"]
+            bc_skill = bc_batch["skill"]
+            bc_robot = bc_batch["robot"]
+
+            bc_actions = bc_batch["actions"].clone()
+
+            if ACTION_MODE == "joint_positions":
+                bc_actions[:, :6] /= self.max_range
+            else:
+                bc_actions[:, :9] /= self.max_range
+
+            bc_actions_pred, logit = self.policy.deterministic(
+                bc_img,
+                bc_target_img,
+                bc_original_target_img,
+                bc_skill,
+                bc_robot,
+            )
+
+            bc_joint_loss = F.mse_loss(
+                bc_actions_pred[:, :self.gripper_act_id],
+                bc_actions[:, :self.gripper_act_id],
+            )
+
+            suction_loss = F.binary_cross_entropy_with_logits(
+                logit.squeeze(-1),
+                bc_actions[:, self.gripper_act_id],
+            )
+
+            bc_loss = (
+                JOINT_WEIGHT * bc_joint_loss
+                + SUCTION_WEIGHT * suction_loss
+            )
+
+        ########################################
+        # --------- Total Actor Loss -----------
+        ########################################
+
+        total_policy_loss = (
+            sac_loss
+            + self.bc_weight * bc_loss
+        )
+        
+        # total_policy_loss = self.bc_weight * bc_loss
 
         self.policy_optimizer.zero_grad()
+
         total_policy_loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(
+            self.policy.parameters(),
+            10.0,
+        )
+
         self.policy_optimizer.step()
-        
-        # if bc_samples is not None:
-            # print(f"[Robot eef pose] {bc_state[:5, -25:-16].cpu().detach().numpy()}", flush=True)
-            # print(f"[SkillExecutionSACAgent] bc_actions: {bc_actions[:2].cpu().detach().numpy()} \n vesus predict: {bc_actions_pred[:2].cpu().detach().numpy()}", flush=True)
 
         ########################################
-        # -------- Soft Update -----------------
+        # --------- Unfreeze Critic ------------
         ########################################
 
-        if self.step % 10 == 0:
-            for target_param, param in zip(self.target_q.parameters(), self.q.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+        for p in self.q.parameters():
+            p.requires_grad = True
+
+        ########################################
+        # --------- Soft Update ----------------
+        ########################################
+
+        for target_param, param in zip(
+            self.target_q.parameters(),
+            self.q.parameters(),
+        ):
+            target_param.data.copy_(
+                self.tau * param.data
+                + (1.0 - self.tau) * target_param.data
+            )
+
         self.step += 1
+
         ########################################
-        # -------- Sample Loss -----------------
+        # --------- Validation -----------------
         ########################################
-        
+
+        val_loss = 0.0
+
         if val_samples is not None:
-            val_img, val_target_img, val_original_target_img, val_skill, val_robot = val_samples[0]
+
+            val_batch = unpack_samples(val_samples)
+
+            val_actions = val_batch["actions"].clone()
+
             if ACTION_MODE == "joint_positions":
-                val_actions = val_samples[1]
-                val_actions[:, :6] = val_actions[:, :6] / self.max_range
+                val_actions[:, :6] /= self.max_range
             else:
-                val_actions = val_samples[2]
-                val_actions[:, :3] = val_actions[:, :3] / self.max_range
+                val_actions[:, :9] /= self.max_range
 
             with torch.no_grad():
-                val_actions_pred, logit = self.policy.deterministic(val_img, val_target_img, val_original_target_img, val_skill, val_robot)
-                val_joint_loss = F.mse_loss(val_actions_pred[:, :self.gripper_act_id], val_actions[:, :self.gripper_act_id])
-                suction_loss = F.binary_cross_entropy_with_logits(logit.squeeze(-1), val_actions[:, self.gripper_act_id])
-                sample_loss = JOINT_WEIGHT * val_joint_loss + SUCTION_WEIGHT * suction_loss
-                print(f"[SkillExecutionSACAgent] Validation loss: {sample_loss.item():.4f}, joint_loss: {val_joint_loss.item():.4f}, suction_loss: {suction_loss.item():.4f}", flush=True)
-                print(f"[SkillExecutionSACAgent] Val joint states: {val_robot.cpu().detach().numpy()[:2, 9:15]}, skill vec: {val_skill[:2].cpu().detach().numpy()}", flush=True)
-                print(f"[SkillExecutionSACAgent] Val actions: {val_actions[:2].cpu().detach().numpy() * self.max_range} \n versus predict: {val_actions_pred[:2].cpu().detach().numpy() * self.max_range}", flush=True)
+
+                val_actions_pred, val_logit = (
+                    self.policy.deterministic(
+                        val_batch["img"],
+                        val_batch["target_img"],
+                        val_batch["original_target_img"],
+                        val_batch["skill"],
+                        val_batch["robot"],
+                    )
+                )
+
+                val_joint_loss = F.mse_loss(
+                    val_actions_pred[:, :self.gripper_act_id],
+                    val_actions[:, :self.gripper_act_id],
+                )
+
+                val_suction_loss = (
+                    F.binary_cross_entropy_with_logits(
+                        val_logit.squeeze(-1),
+                        val_actions[:, self.gripper_act_id],
+                    )
+                )
+
+                val_loss = (
+                    JOINT_WEIGHT * val_joint_loss
+                    + SUCTION_WEIGHT * val_suction_loss
+                )
+
+                print(
+                    f"[Validation] "
+                    f"loss={val_loss.item():.4f} "
+                    f"joint={val_joint_loss.item():.4f} "
+                    f"suction={val_suction_loss.item():.4f}",
+                    flush=True,
+                )
+
+        ########################################
+        # --------- Return ---------------------
+        ########################################
+        print(f"Log prob: {log_prob.mean().item():.4f}", flush=True)
 
         return {
             "q1_loss": q1_loss.item(),
             "q2_loss": q2_loss.item(),
+            "critic_loss": critic_loss.item(),
             "sac_loss": sac_loss.item(),
-            "bc_loss": bc_joint_loss.item() if bc_samples is not None else 0.0,
-            "val_loss": val_joint_loss.item() if val_samples is not None else 0.0,
+            "bc_loss": bc_joint_loss.item(),
+            "val_loss": (
+                val_joint_loss.item()
+                if isinstance(val_joint_loss, torch.Tensor)
+                else val_loss
+            ),
+            "update_time": time.time() - start_update_time,
         }
         

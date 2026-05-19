@@ -17,7 +17,7 @@ from tf2_ros import TransformBroadcaster, Buffer, TransformListener
 BASE_FRAME = "base_link"
 EEF_FRAME = "virtual_suction_tip"
 WINDOW_SIZE = 15   # must be odd
-DROPPING_HEIGHT = 0.45
+DROPPING_HEIGHT = 0.3
 
 class PlacingExpert:
     def __init__(self, node, tf2_buffer):
@@ -97,6 +97,10 @@ class PlacingExpert:
         self._node.get_logger().info(
             f"Selected point received: {point}"
         )
+        if point["x"] < 320:
+            point["x"] += 20  # adjust for camera offset
+        else:
+            point["x"] -= 20
         
         if self._enable and self.depth_image is not None and self.camera_info is not None:
             placing_point, placing_quat = self._compute_placing_pose(point)
@@ -108,16 +112,16 @@ class PlacingExpert:
                 )
                 
                 goal_req = ExecuteGoal.Request()
-                goal_req.speed_factor = 0.4
+                goal_req.speed_factor = 0.5
                 goal_req.planning_time = 2.0
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
                 
                 current_eef_transform = self._lookup_eef_transform()
                 if current_eef_transform.pose.position.z < 0.3:
-                    current_eef_transform.pose.position.z += 0.05  # lift up a bit to avoid collision during placing
+                    current_eef_transform.pose.position.z += 0.1  # lift up a bit to avoid collision during placing
                     if current_eef_transform.pose.position.x > 0.3:
-                        current_eef_transform.pose.position.x -= 0.05
+                        current_eef_transform.pose.position.x -= 0.1
                                         
                     goal_req.goal.pose = current_eef_transform.pose
                     
@@ -128,7 +132,7 @@ class PlacingExpert:
                     while not future.done():
                         time.sleep(0.001)
                 
-                goal_req.planning_time = 10.0
+                goal_req.planning_time = 5.0
                 goal_req.goal.pose.position.x = float(placing_point[0])
                 goal_req.goal.pose.position.y = float(placing_point[1])
                 goal_req.goal.pose.position.z = float(placing_point[2])
@@ -215,7 +219,7 @@ class PlacingExpert:
         point_base = self._camera_transform @ point_camera_h
         placing_point = point_base[:3]
         placing_point[2] = DROPPING_HEIGHT
-        picking_dir = placing_point - np.array([0.0, 0.0, placing_point[2] + DROPPING_HEIGHT / 2])  # direction pointing downwards
+        picking_dir = placing_point - np.array([0.0, 0.0, placing_point[2] + 1.0])  # direction pointing downwards
         picking_dir /= np.linalg.norm(picking_dir)
         # ---------------------------
         # 3) Build rotation matrix

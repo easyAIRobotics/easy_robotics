@@ -15,9 +15,9 @@ class ExpertsNode:
         self._node = node      
         self.depth_img_sub = self._node.create_subscription(
             Image,
-            "/camera/depth",
+            "skill_execution_state_interface/original_depth",
             self._depth_image_callback,
-            10,
+            1,
         )
         
         self.cv_bridge = CvBridge()

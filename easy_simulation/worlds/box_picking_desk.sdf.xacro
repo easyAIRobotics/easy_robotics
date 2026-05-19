@@ -85,382 +85,197 @@
       <pose>0 0 0 0 0 0</pose>
       <self_collide>false</self_collide>
     </model>
-    <model name='Table'>
-      <static>true</static>
-      <link name='link'>
-        <collision name='surface'>
-          <pose>0 0 1 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>1.5 0.80000000000000004 0.029999999999999999</size>
-            </box>
-          </geometry>
-          <surface>
-            <friction>
-              <ode>
-                <mu>0.59999999999999998</mu>
-                <mu2>0.59999999999999998</mu2>
-              </ode>
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='visual1'>
-          <pose>0 0 1 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>1.5 0.80000000000000004 0.029999999999999999</size>
-            </box>
-          </geometry>
-          <material>
-            <diffuse>1 1 1 1</diffuse>
-            <script>
+
+    <xacro:macro name="desk" params="name origin L W H">
+      <model name='${name}'>
+        <static>true</static>
+        <link name='link'>
+          <collision name='surface'>
+            <pose>0 0 ${H} 0 0 0</pose>
+            <geometry>
+              <box>
+                <size>${L} ${W} 0.03</size>
+              </box>
+            </geometry>
+            <surface>
+              <friction>
+                <ode>
+                  <mu>0.59999999999999998</mu>
+                  <mu2>0.59999999999999998</mu2>
+                </ode>
+              </friction>
+              <bounce />
+              <contact />
+            </surface>
+          </collision>
+          <visual name='visual1'>
+            <pose>0 0 ${H} 0 0 0</pose>
+            <geometry>
+              <box>
+                <size>${L} ${W} 0.03</size>
+              </box>
+            </geometry>
+            <material>
+              <diffuse>1 1 1 1</diffuse>
+              <script>
               <uri>file://media/materials/scripts/gazebo.material</uri>
               <name>Gazebo/Wood</name>
             </script>
-            <pbr>
-              <metal>
-                <albedo_map>
-                  https://fuel.gazebosim.org/1.0/openrobotics/models/table/4/files/Table_Diffuse.jpg</albedo_map>
-              </metal>
-            </pbr>
-          </material>
-        </visual>
-        <collision name='front_left_leg'>
-          <pose>0.68000000000000005 0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <surface>
-            <friction>
-              <ode />
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='front_left_leg'>
-          <pose>0.68000000000000005 0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <diffuse>0.5 0.5 0.5 1</diffuse>
-            <script>
+              <pbr>
+                <metal>
+                  <albedo_map>
+                    https://fuel.gazebosim.org/1.0/openrobotics/models/table/4/files/Table_Diffuse.jpg</albedo_map>
+                </metal>
+              </pbr>
+            </material>
+          </visual>
+          <collision name='front_left_leg'>
+            <pose>${L/2 - 0.05} ${W/2 - 0.05} ${H/2} 0 0 0</pose>
+            <geometry>
+              <cylinder>
+                <radius>0.02</radius>
+                <length>${H}</length>
+              </cylinder>
+            </geometry>
+            <surface>
+              <friction>
+                <ode />
+              </friction>
+              <bounce />
+              <contact />
+            </surface>
+          </collision>
+          <visual name='front_left_leg'>
+            <pose>${L/2 - 0.05} ${W/2 - 0.05} ${H/2} 0 0 0</pose>
+            <geometry>
+              <cylinder>
+                <radius>0.02</radius>
+                <length>${H}</length>
+              </cylinder>
+            </geometry>
+            <material>
+              <diffuse>0.5 0.5 0.5 1</diffuse>
+              <script>
               <uri>file://media/materials/scripts/gazebo.material</uri>
               <name>Gazebo/Grey</name>
             </script>
-          </material>
-        </visual>
-        <collision name='front_right_leg'>
-          <pose>0.68000000000000005 -0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <surface>
-            <friction>
-              <ode />
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='front_right_leg'>
-          <pose>0.68000000000000005 -0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <diffuse>0.5 0.5 0.5 1</diffuse>
-            <script>
+            </material>
+          </visual>
+          <collision name='front_right_leg'>
+            <pose>${L/2 - 0.05} -${W/2 - 0.05} ${H/2} 0 0 0</pose>
+            <geometry>
+              <cylinder>
+                <radius>0.02</radius>
+                <length>${H}</length>
+              </cylinder>
+            </geometry>
+            <surface>
+              <friction>
+                <ode />
+              </friction>
+              <bounce />
+              <contact />
+            </surface>
+          </collision>
+          <visual name='front_right_leg'>
+            <pose>${L/2 - 0.05} -${W/2 - 0.05} ${H/2} 0 0 0</pose>
+            <geometry>
+              <cylinder>
+                <radius>0.02</radius>
+                <length>${H}</length>
+              </cylinder>
+            </geometry>
+            <material>
+              <diffuse>0.5 0.5 0.5 1</diffuse>
+              <script>
               <uri>file://media/materials/scripts/gazebo.material</uri>
               <name>Gazebo/Grey</name>
             </script>
-          </material>
-        </visual>
-        <collision name='back_right_leg'>
-          <pose>-0.68000000000000005 -0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <surface>
-            <friction>
-              <ode />
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='back_right_leg'>
-          <pose>-0.68000000000000005 -0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <diffuse>0.5 0.5 0.5 1</diffuse>
-            <script>
+            </material>
+          </visual>
+          <collision name='back_right_leg'>
+            <pose>-${L/2 - 0.05} -${W/2 - 0.05} ${H/2} 0 0 0</pose>
+            <geometry>
+              <cylinder>
+                <radius>0.02</radius>
+                <length>${H}</length>
+              </cylinder>
+            </geometry>
+            <surface>
+              <friction>
+                <ode />
+              </friction>
+              <bounce />
+              <contact />
+            </surface>
+          </collision>
+          <visual name='back_right_leg'>
+            <pose>-${L/2 - 0.05} -${W/2 - 0.05} ${H/2} 0 0 0</pose>
+            <geometry>
+              <cylinder>
+                <radius>0.02</radius>
+                <length>${H}</length>
+              </cylinder>
+            </geometry>
+            <material>
+              <diffuse>0.5 0.5 0.5 1</diffuse>
+              <script>
               <uri>file://media/materials/scripts/gazebo.material</uri>
               <name>Gazebo/Grey</name>
             </script>
-          </material>
-        </visual>
-        <collision name='back_left_leg'>
-          <pose>-0.68000000000000005 0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <surface>
-            <friction>
-              <ode />
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='back_left_leg'>
-          <pose>-0.68000000000000005 0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <diffuse>0.5 0.5 0.5 1</diffuse>
-            <script>
+            </material>
+          </visual>
+          <collision name='back_left_leg'>
+            <pose>-${L/2 - 0.05} ${W/2 - 0.05} ${H/2} 0 0 0</pose>
+            <geometry>
+              <cylinder>
+                <radius>0.02</radius>
+                <length>${H}</length>
+              </cylinder>
+            </geometry>
+            <surface>
+              <friction>
+                <ode />
+              </friction>
+              <bounce />
+              <contact />
+            </surface>
+          </collision>
+          <visual name='back_left_leg'>
+            <pose>-${L/2 - 0.05} ${W/2 - 0.05} ${H/2} 0 0 0</pose>
+            <geometry>
+              <cylinder>
+                <radius>0.02</radius>
+                <length>${H}</length>
+              </cylinder>
+            </geometry>
+            <material>
+              <diffuse>0.5 0.5 0.5 1</diffuse>
+              <script>
               <uri>file://media/materials/scripts/gazebo.material</uri>
               <name>Gazebo/Grey</name>
             </script>
-          </material>
-        </visual>
-        <pose>0 0 0 0 0 0</pose>
-        <inertial>
+            </material>
+          </visual>
           <pose>0 0 0 0 0 0</pose>
-          <mass>1</mass>
-          <inertia>
-            <ixx>1</ixx>
-            <ixy>0</ixy>
-            <ixz>0</ixz>
-            <iyy>1</iyy>
-            <iyz>0</iyz>
-            <izz>1</izz>
-          </inertia>
-        </inertial>
-        <enable_wind>false</enable_wind>
-      </link>
-      <pose>0 0 0 0 0 1.5707900000000004</pose>
-      <self_collide>false</self_collide>
-    </model>
-    <model name='Table_0'>
-      <static>true</static>
-      <link name='link'>
-        <collision name='surface'>
-          <pose>0 0 1 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>1.5 0.80000000000000004 0.029999999999999999</size>
-            </box>
-          </geometry>
-          <surface>
-            <friction>
-              <ode>
-                <mu>0.59999999999999998</mu>
-                <mu2>0.59999999999999998</mu2>
-              </ode>
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='visual1'>
-          <pose>0 0 1 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>1.5 0.80000000000000004 0.029999999999999999</size>
-            </box>
-          </geometry>
-          <material>
-            <diffuse>1 1 1 1</diffuse>
-            <script>
-              <uri>file://media/materials/scripts/gazebo.material</uri>
-              <name>Gazebo/Wood</name>
-            </script>
-            <pbr>
-              <metal>
-                <albedo_map>
-                  https://fuel.gazebosim.org/1.0/openrobotics/models/table/4/files/Table_Diffuse.jpg</albedo_map>
-              </metal>
-            </pbr>
-          </material>
-        </visual>
-        <collision name='front_left_leg'>
-          <pose>0.68000000000000005 0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <surface>
-            <friction>
-              <ode />
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='front_left_leg'>
-          <pose>0.68000000000000005 0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <diffuse>0.5 0.5 0.5 1</diffuse>
-            <script>
-              <uri>file://media/materials/scripts/gazebo.material</uri>
-              <name>Gazebo/Grey</name>
-            </script>
-          </material>
-        </visual>
-        <collision name='front_right_leg'>
-          <pose>0.68000000000000005 -0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <surface>
-            <friction>
-              <ode />
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='front_right_leg'>
-          <pose>0.68000000000000005 -0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <diffuse>0.5 0.5 0.5 1</diffuse>
-            <script>
-              <uri>file://media/materials/scripts/gazebo.material</uri>
-              <name>Gazebo/Grey</name>
-            </script>
-          </material>
-        </visual>
-        <collision name='back_right_leg'>
-          <pose>-0.68000000000000005 -0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <surface>
-            <friction>
-              <ode />
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='back_right_leg'>
-          <pose>-0.68000000000000005 -0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <diffuse>0.5 0.5 0.5 1</diffuse>
-            <script>
-              <uri>file://media/materials/scripts/gazebo.material</uri>
-              <name>Gazebo/Grey</name>
-            </script>
-          </material>
-        </visual>
-        <collision name='back_left_leg'>
-          <pose>-0.68000000000000005 0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <surface>
-            <friction>
-              <ode />
-            </friction>
-            <bounce />
-            <contact />
-          </surface>
-        </collision>
-        <visual name='back_left_leg'>
-          <pose>-0.68000000000000005 0.38 0.5 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.02</radius>
-              <length>1</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <diffuse>0.5 0.5 0.5 1</diffuse>
-            <script>
-              <uri>file://media/materials/scripts/gazebo.material</uri>
-              <name>Gazebo/Grey</name>
-            </script>
-          </material>
-        </visual>
-        <pose>0 0 0 0 0 0</pose>
-        <inertial>
-          <pose>0 0 0 0 0 0</pose>
-          <mass>1</mass>
-          <inertia>
-            <ixx>1</ixx>
-            <ixy>0</ixy>
-            <ixz>0</ixz>
-            <iyy>1</iyy>
-            <iyz>0</iyz>
-            <izz>1</izz>
-          </inertia>
-        </inertial>
-        <enable_wind>false</enable_wind>
-      </link>
-      <pose>0.80000000000000004 0 0 0 0 1.5707900000000004</pose>
-      <self_collide>false</self_collide>
-    </model>
+          <inertial>
+            <pose>0 0 0 0 0 0</pose>
+            <mass>1</mass>
+            <inertia>
+              <ixx>1</ixx>
+              <ixy>0</ixy>
+              <ixz>0</ixz>
+              <iyy>1</iyy>
+              <iyz>0</iyz>
+              <izz>1</izz>
+            </inertia>
+          </inertial>
+          <enable_wind>false</enable_wind>
+        </link>
+        <pose>${origin}</pose>
+        <self_collide>false</self_collide>
+      </model>
+    </xacro:macro>
 
     <xacro:macro name="box" params="name origin">
       <include>
@@ -494,17 +309,22 @@
       </include>
     </xacro:macro>
 
+    <xacro:desk name="desk1" origin="0.6 0 0 0 0 1.5707900000000004" L="1.5" W="0.8" H="1.0" />
+    <xacro:desk name="desk2" origin="-0.1 0.0 0 0 0 1.5707900000000004" L="0.6" W="0.6" H="1.0" />
+    <xacro:desk name="desk3" origin="-0.1 0.6 0 0 0 1.5707900000000004" L="0.6" W="0.6" H="0.7" />
+    <xacro:desk name="desk4" origin="-0.1 -0.6 0 0 0 1.5707900000000004" L="0.6" W="0.6" H="0.7" />
+
     <xacro:box name="box1"
       origin="0.87095397710800171 -0.021143499761819839 1.1649983722855026 0 0 0" />
     <xacro:target_box name="target_box1" origin="0.87095397710800171 -0.5 1.1649983722855026 0 0 0" />
 
     <xacro:storage_bin
       name="storage_bin"
-      origin="0.0 0.5 1.1299983722855026 0 0 0" />
+      origin="-0.1 0.5 0.75 0 0 0" />
 
     <xacro:storage_bin_green
       name="storage_bin_green"
-      origin="0.0 -0.5 1.1299983722855026 0 0 0" />
+      origin="-0.1 -0.5 0.75 0 0 0" />
 
     <!-- <plugin
         filename="easy_simulation_plugins"

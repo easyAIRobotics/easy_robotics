@@ -1,0 +1,8 @@
+float64[] joint_goal
+float64 speed_factor
+float64 planning_time
+
+---
+
+bool success
+string message

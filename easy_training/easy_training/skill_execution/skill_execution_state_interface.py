@@ -16,6 +16,7 @@ from tf2_ros import LookupException, ConnectivityException, ExtrapolationExcepti
 
 import numpy as np
 import tf_transformations
+from threading import Lock
 
 from cv_bridge import CvBridge
 
@@ -39,13 +40,15 @@ FAILED_PICK_PENALTY = 0.0
 SUCCESS_DROP_REWARD = 10.0
 FAILED_DROP_PENALTY = -10.0
 
+HEIGHT_REWARD_SCALE = 1.0
 DISTANCE_REWARD_SCALE = 2.0
-DROPPING_HEIGHT = 0.45
+DROPPING_HEIGHT = 0.3
         
 class SkillExecutionStateInterface(StateInterface):
     def __init__(self, node: Node):
         super().__init__(node)
         
+        self.mutex = Lock()
         self.state = {"done": 0.0}
         self.depth_transform_mtx = None
         
@@ -53,6 +56,12 @@ class SkillExecutionStateInterface(StateInterface):
         self.point_image_pub = self._node.create_publisher(
             PointCloud2,
             "skill_execution_state_interface/points",
+            1
+        )
+        
+        self.result_pub = self._node.create_publisher(
+            Bool,
+            "skill_execution/result",
             1
         )
         
@@ -108,6 +117,12 @@ class SkillExecutionStateInterface(StateInterface):
             callback_group=self.state_interface_callback_group
         )
         
+        self.original_depth_image_pub = self._node.create_publisher(
+            Image,
+            "skill_execution_state_interface/original_depth",
+            1
+        )
+        
         self.camera_info = None
         def _camera_info_callback(msg: CameraInfo):
             self.camera_info = msg
@@ -123,8 +138,9 @@ class SkillExecutionStateInterface(StateInterface):
         # Bounding box observation
         self.selected_bbox = None
         def _bounding_box_callback(msg: BoundingBox):
-            self.selected_bbox = msg
-            self.state['original_target_image'] = None
+            with self.mutex:
+                self.selected_bbox = msg
+                self.state["original_target_image"] = None
         self.bounding_box_sub = self._node.create_subscription(
             BoundingBox,
             "selected_box",
@@ -140,7 +156,14 @@ class SkillExecutionStateInterface(StateInterface):
     def check_sanity(self) -> bool:
         return not (self.camera_info is None or 
                     self.depth_transform_mtx is None or 
-                    self.selected_bbox is None)
+                    self.selected_bbox is None or
+                    self.state["eef_pose"] is None or
+                    self.state["joint_positions"] is None or
+                    self.state["suction_state"] is None or
+                    self.state["cmd_suction_state"] is None or
+                    self.state["point_image"] is None or
+                    self.state["target_image"] is None or
+                    self.state["original_target_image"] is None)
 
 
     def tf_timer_callback(self):
@@ -171,58 +194,62 @@ class SkillExecutionStateInterface(StateInterface):
     
     def _depth_image_callback(self, msg: Image):
         """Convert depth image to point cloud image and store in state."""
-        if self.camera_info is None:
-            return
-        
-        self._lookup_depth_transform()
-        if self.depth_transform_mtx is None:
-            return
-        
-        if self.selected_bbox is None:
-            return
-        
-        # Median filter to reduce noise and image size
-        depth_image = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-        depth_image = depth_image.astype(np.float32) * DEPTH_SCALE
-        depth_image[~np.isfinite(depth_image)] = 0.0
-        depth_ds = median_downsample(depth_image, DOWNSAMPLE_RATIO)
-        h, w = depth_ds.shape
-        
-        # Convert each pixel to 3D point, then store in that pixel
-        u = np.arange(w)
-        v = np.arange(h)
-        uu, vv = np.meshgrid(u, v)
+        with self.mutex:
+            if self.camera_info is None:
+                return
+            
+            self._lookup_depth_transform()
+            if self.depth_transform_mtx is None:
+                return
+            
+            if self.selected_bbox is None:
+                return
+            
+            if self.state.get('original_target_image', None) is None:
+                self.original_depth_image_pub.publish(msg)
+            
+            # Median filter to reduce noise and image size
+            depth_image = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            depth_image = depth_image.astype(np.float32) * DEPTH_SCALE
+            depth_image[~np.isfinite(depth_image)] = 0.0
+            depth_ds = median_downsample(depth_image, DOWNSAMPLE_RATIO)
+            h, w = depth_ds.shape
+            
+            # Convert each pixel to 3D point, then store in that pixel
+            u = np.arange(w)
+            v = np.arange(h)
+            uu, vv = np.meshgrid(u, v)
 
-        # Adjust intrinsics for downsampling
-        fx = self.camera_info.k[0] / DOWNSAMPLE_RATIO
-        fy = self.camera_info.k[4] / DOWNSAMPLE_RATIO
-        cx = self.camera_info.k[2] / DOWNSAMPLE_RATIO
-        cy = self.camera_info.k[5] / DOWNSAMPLE_RATIO
+            # Adjust intrinsics for downsampling
+            fx = self.camera_info.k[0] / DOWNSAMPLE_RATIO
+            fy = self.camera_info.k[4] / DOWNSAMPLE_RATIO
+            cx = self.camera_info.k[2] / DOWNSAMPLE_RATIO
+            cy = self.camera_info.k[5] / DOWNSAMPLE_RATIO
 
-        Z = depth_ds
-        X = (uu - cx) * Z / fx
-        Y = (vv - cy) * Z / fy
+            Z = depth_ds
+            X = (uu - cx) * Z / fx
+            Y = (vv - cy) * Z / fy
 
-        d_points_image = np.stack((X, Y, Z), axis=-1)
+            d_points_image = np.stack((X, Y, Z), axis=-1)
 
-        h, w, _ = d_points_image.shape
+            h, w, _ = d_points_image.shape
 
-        # Flatten to (N, 3)
-        d_points_image = d_points_image.reshape(-1, 3)
+            # Flatten to (N, 3)
+            d_points_image = d_points_image.reshape(-1, 3)
 
-        # Convert to homogeneous coordinates (N, 4)
-        d_points_image_h = np.concatenate(
-            [d_points_image, np.ones((d_points_image.shape[0], 1))],
-            axis=1
-        )
+            # Convert to homogeneous coordinates (N, 4)
+            d_points_image_h = np.concatenate(
+                [d_points_image, np.ones((d_points_image.shape[0], 1))],
+                axis=1
+            )
 
-        # Apply camera -> base transform
-        points_base_h = (self.depth_transform_mtx @ d_points_image_h.T).T
+            # Apply camera -> base transform
+            points_base_h = (self.depth_transform_mtx @ d_points_image_h.T).T
 
-        # Reshape back to image layout
-        points_base_h = points_base_h[:, :3].reshape(h, w, 3)
-        self._append_boundingbox_mask(points_base_h)
-        self._publish_point_image()
+            # Reshape back to image layout
+            points_base_h = points_base_h[:, :3].reshape(h, w, 3)
+            self._append_boundingbox_mask(points_base_h)
+            self._publish_point_image()
         
     def _append_boundingbox_mask(self, points_image: np.ndarray) -> np.ndarray:
         """Append a binary mask channel to the point image based on the selected bounding box."""
@@ -327,7 +354,11 @@ class SkillExecutionStateInterface(StateInterface):
 
         pc_msg = pc2.create_cloud(header, fields, points)
         self.point_image_pub.publish(pc_msg)
-        
+    
+    
+    def set_action(self, action):
+        self.action = action
+        self.state["done"] = 0.0
         
     # Get current states and observations
     def get_state(self) -> dict:
@@ -382,6 +413,7 @@ class SkillExecutionStateInterface(StateInterface):
             ee_position = np.array(self.state["eef_pose"][:3])
             distance = np.linalg.norm(ee_position - object_center)
             reward -= DISTANCE_REWARD_SCALE * (distance ** 2)  # Closer gets higher reward
+            reward += HEIGHT_REWARD_SCALE * (min(1.0, self.state["eef_pose"][2]) - 1.0)
             
         # Additional reward for successful suction (if suction state is on and object is close)
         self.state["done"] = 0.0
@@ -389,9 +421,12 @@ class SkillExecutionStateInterface(StateInterface):
             if self.state["suction_state"] == 1.0:  # If suction state is on (object is picked)
                 self.state["done"] = 1.0
                 reward += SUCCESS_PICK_REWARD  # Bonus for successful pick
+                self.result_pub.publish(Bool(data=True))
             else:
                 self.state["done"] = 0.0
                 reward += FAILED_PICK_PENALTY  # Penalty for failed pick
+                self.result_pub.publish(Bool(data=False))
+        print(f"Reward from environment (picking): {reward}", flush=True)
                 
         return reward
     
@@ -407,15 +442,21 @@ class SkillExecutionStateInterface(StateInterface):
             print(f"EE position: {ee_position}, Target place position: {object_center}, Diff: {diff_vector}", flush=True)
             distance = np.linalg.norm(diff_vector)
             reward -= DISTANCE_REWARD_SCALE * (distance ** 2)  # Closer gets higher reward
+            # Reward for lifting up the object (encourage the agent to lift up after picking)
+            reward += HEIGHT_REWARD_SCALE * (min(1.0, self.state["eef_pose"][2]) - 1.0)
             
             # Additional reward for successful release (Only when the gripper close to the place position and suction is off)
             if self.state["cmd_suction_state"] == 0.0:  # If suction command is off
                 if distance < 0.3:
                     reward += SUCCESS_DROP_REWARD  # Bonus for successful place
                     self.state["done"] = 1.0
+                    self.result_pub.publish(Bool(data=True))
+                    return reward
                 else:
                     reward += FAILED_DROP_PENALTY  # Penalty for placing in wrong position
                     self.state["done"] = 0.0
+            
+            self.result_pub.publish(Bool(data=False))
                         
         return reward
                         

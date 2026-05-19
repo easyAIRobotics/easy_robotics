@@ -44,13 +44,13 @@ class StateInterface:
         raise NotImplementedError("[StateInterface] The check_sanity method must be implemented by the subclass.")
     
     def set_action(self, action: str):
-        self.action = action
+        raise NotImplementedError("[StateInterface] The set_action method must be implemented by the subclass.")
         
     def set_mode(self, mode: AgentMode):
         self._mode = mode
         self._node.get_logger().info(f"[SkillExecutionStateInterface] Mode set to: {self._mode.name}")
-        if self._mode == AgentMode.IDLE:
-            self.selected_bbox = None
+        # if self._mode == AgentMode.IDLE:
+        #     self.selected_bbox = None
     
         # Get current states and observations
     def get_state(self) -> dict:
@@ -101,6 +101,8 @@ class AgentInterface:
         
         self.rl_replay_buffer = None
         self.bc_replay_buffer = None
+        self.past_bc_replay_buffer = None
+        self.past_rl_replay_buffer = None
         self.validate_buffer = None
         self.loss_visualizer = LossVisualizer()
         
@@ -192,7 +194,7 @@ class AgentInterface:
     def execute_command(self, command: str):
         print(f"[AgentInterface] Executing command: {command}", flush=True)
         if command == "training/save_buffer":
-            stamped_buffer_folder = self.storage_path + f"/buffer_{int(time.time())}"
+            stamped_buffer_folder = self.storage_path + f"/buffer_latest/data_{int(time.time())}"
             if not os.path.exists(stamped_buffer_folder):
                 os.makedirs(stamped_buffer_folder)
             self.rl_replay_buffer.save_to_disk(stamped_buffer_folder + "/rl_replay_buffer.npz")

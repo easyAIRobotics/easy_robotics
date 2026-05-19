@@ -28,6 +28,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SolveIK.srv"
   "srv/CheckCollision.srv"
   "srv/ExecuteGoal.srv"
+  "srv/ExecuteJointGoal.srv"
+  "srv/ExecuteRandomGoal.srv"
   DEPENDENCIES
     builtin_interfaces
     std_msgs

@@ -1,0 +1,10 @@
+uint8 RANDOM=0
+uint8 RANDOM_VALID=1
+
+uint8 random_type
+float64 speed_factor
+float64 planning_time
+---
+
+bool success
+string message

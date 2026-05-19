@@ -29,7 +29,7 @@ class YoloDetection:
         Returns:
             List of detected objects with their bounding boxes and confidence scores.
         """
-        results = self.model(image, conf=0.5, verbose=False)
+        results = self.model(image, conf=0.4, iou=0.2, verbose=False)
         detections = []
         for result in results:
             for box in result.boxes:

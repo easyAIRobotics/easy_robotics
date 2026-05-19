@@ -54,11 +54,11 @@ class BoxSpawner:
         }
         
         self.storage_bin_positions = {
-            "storage_bin": [0.0, 0.5, 1.15],
-            "storage_bin_green": [0.0, -0.5, 1.15],
+            "storage_bin": [-0.1, 0.5, 0.8],
+            "storage_bin_green": [-0.1, -0.5, 0.8],
         }
 
-        self.center_pose = [0.3, 0.0, 1.6]
+        self.center_pose = [0.35, 0.0, 1.6]
         self.std_pose = [AREA_RADIUS / 3, AREA_RADIUS / 3, 0.0]
         
         self.respawn_boxes_srv = self.ros_node.create_service(

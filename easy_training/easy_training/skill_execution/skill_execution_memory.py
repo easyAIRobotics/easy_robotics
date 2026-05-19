@@ -98,7 +98,7 @@ class SkillExecutionReplayBuffer(ReplayBuffer):
             alpha = 0.01
         weights = np.exp(alpha * np.arange(self.buffer_size))
         prob = weights / weights.sum()
-
+        batch_size = min(batch_size, self.buffer_size)
         idx = np.random.choice(self.buffer_size, size=batch_size, p=prob)
 
         # -------- Current --------

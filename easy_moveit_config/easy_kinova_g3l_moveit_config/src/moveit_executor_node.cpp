@@ -17,10 +17,14 @@
 #include "easy_interfaces/srv/solve_ik.hpp"
 #include "easy_interfaces/srv/check_collision.hpp"
 #include "easy_interfaces/srv/execute_goal.hpp"
+#include "easy_interfaces/srv/execute_joint_goal.hpp"
+#include "easy_interfaces/srv/execute_random_goal.hpp"
 
 using SolveIK = easy_interfaces::srv::SolveIK;
 using CheckCollision = easy_interfaces::srv::CheckCollision;
 using ExecuteGoal = easy_interfaces::srv::ExecuteGoal;
+using ExecuteJointGoal = easy_interfaces::srv::ExecuteJointGoal;
+using ExecuteRandomGoal = easy_interfaces::srv::ExecuteRandomGoal;
 
 class MoveItExecutorNode
 {
@@ -79,6 +83,24 @@ public:
     execute_goal_srv_ = node_->create_service<ExecuteGoal>(
         "execute_goal",
         std::bind(&MoveItExecutorNode::handleExecuteGoal,
+                  this,
+                  std::placeholders::_1,
+                  std::placeholders::_2),
+        rclcpp::ServicesQoS(),
+        service_cb_group_);
+
+    execute_joint_goal_srv_ = node_->create_service<ExecuteJointGoal>(
+        "execute_joint_goal",
+        std::bind(&MoveItExecutorNode::handleExecuteJointGoal,
+                  this,
+                  std::placeholders::_1,
+                  std::placeholders::_2),
+        rclcpp::ServicesQoS(),
+        service_cb_group_);
+
+    execute_random_goal_srv_ = node_->create_service<ExecuteRandomGoal>(
+        "execute_random_goal",
+        std::bind(&MoveItExecutorNode::handleExecuteRandomGoal,
                   this,
                   std::placeholders::_1,
                   std::placeholders::_2),
@@ -150,12 +172,12 @@ private:
         break;
     }
 
-    if (!found_ik)
-    {
-      res->success = false;
-      res->message = "IK failed";
-      return;
-    }
+    // if (!found_ik)
+    // {
+    //   res->success = false;
+    //   res->message = "IK failed";
+    //   return;
+    // }
 
     // -------------------------------
     // Collision check
@@ -165,7 +187,7 @@ private:
 
     planning_scene_->checkCollision(creq, cres, *kinematics_state);
 
-    res->success = true;
+    res->success = found_ik;
     res->in_collision = cres.collision;
     res->message = cres.collision ? "IK solution found but in collision" : "IK solution valid and collision-free";
 
@@ -226,6 +248,101 @@ private:
       res->success = false;
       res->message = "Failed to set pose";
       RCLCPP_ERROR(node_->get_logger(), "Failed to set pose");
+    }
+  }
+
+  void handleExecuteJointGoal(
+      const std::shared_ptr<ExecuteJointGoal::Request> req,
+      std::shared_ptr<ExecuteJointGoal::Response> res)
+  {
+    RCLCPP_INFO(node_->get_logger(), "Received request to set joint positions");
+    move_group_->setPlanningTime(req->planning_time);
+    move_group_->setStartStateToCurrentState();
+    move_group_->setJointValueTarget(req->joint_goal);
+    // Plan and execute
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
+    if (success)
+    {
+      if (!move_group_->execute(plan))
+      {
+        RCLCPP_ERROR(node_->get_logger(), "Failed to execute plan");
+        success = false;
+      }
+    }
+
+    // Clear constraints for next motions
+    move_group_->clearPathConstraints();
+    res->success = success;
+    res->message = success ? "Joint goal executed successfully" : "Failed to execute joint goal";
+    if (success)
+    {
+      RCLCPP_INFO(node_->get_logger(), "Joint goal executed successfully");
+    }
+    else
+    {
+      RCLCPP_ERROR(node_->get_logger(), "Failed to execute joint goal");
+    }
+  }
+
+  void handleExecuteRandomGoal(
+      const std::shared_ptr<ExecuteRandomGoal::Request> req,
+      std::shared_ptr<ExecuteRandomGoal::Response> res)
+  {
+    move_group_->setPlanningTime(req->planning_time);
+    move_group_->setStartStateToCurrentState();
+
+    const moveit::core::JointModelGroup *jmg =
+        kinematics_model->getJointModelGroup(planning_group_);
+
+    moveit::core::RobotStatePtr random_state(new moveit::core::RobotState(kinematics_model));
+
+    bool found = false;
+    const int max_attempts = 50;
+
+    for (int i = 0; i < max_attempts; ++i)
+    {
+      random_state->setToRandomPositions(jmg);
+      random_state->enforceBounds(jmg);
+
+      if (req->random_type == ExecuteRandomGoal::Request::RANDOM)
+      {
+        found = true;
+        break;
+      }
+
+      if (req->random_type == ExecuteRandomGoal::Request::RANDOM_VALID)
+      {
+        if (planning_scene_ && planning_scene_->isStateValid(*random_state, jmg->getName()))
+        {
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if (!found)
+    {
+      res->success = false;
+      res->message = "Failed to sample a valid random state";
+      RCLCPP_ERROR(node_->get_logger(), "Failed to sample a valid random state");
+      return;
+    }
+
+    std::vector<double> joint_goal;
+    joint_goal.resize(jmg->getVariableCount());
+
+    random_state->copyJointGroupPositions(jmg, joint_goal);
+
+    bool success = planAndExecute(joint_goal, req->speed_factor);
+
+    res->success = success;
+    res->message = success ? "Random goal executed" : "Planning/execution failed";
+
+    if (!success)
+    {
+      RCLCPP_ERROR(node_->get_logger(), "Planning/execution failed");
     }
   }
 
@@ -305,6 +422,32 @@ private:
     return success;
   }
 
+  bool planAndExecute(const std::vector<double> &joint_goal,
+                      const double speed_factor = 1.0)
+  {
+    move_group_->setMaxVelocityScalingFactor(speed_factor);
+    move_group_->setStartStateToCurrentState();
+    const moveit::core::JointModelGroup *jmg =
+        kinematics_model->getJointModelGroup(planning_group_);
+    move_group_->setJointValueTarget(joint_goal);
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
+    if (success)
+    {
+      if (!move_group_->execute(plan))
+      {
+        RCLCPP_ERROR(node_->get_logger(), "Failed to execute plan");
+        success = false;
+      }
+    }
+
+    // Clear constraints for next motions
+    move_group_->clearPathConstraints();
+
+    return success;
+  }
+
   geometry_msgs::msg::Pose transformPoseToWorld(
       const geometry_msgs::msg::Pose &pose_in_base)
   {
@@ -344,6 +487,8 @@ private:
   rclcpp::Service<SolveIK>::SharedPtr solve_ik_srv_;
   rclcpp::Service<CheckCollision>::SharedPtr check_collision_srv_;
   rclcpp::Service<ExecuteGoal>::SharedPtr execute_goal_srv_;
+  rclcpp::Service<ExecuteJointGoal>::SharedPtr execute_joint_goal_srv_;
+  rclcpp::Service<ExecuteRandomGoal>::SharedPtr execute_random_goal_srv_;
   rclcpp::CallbackGroup::SharedPtr service_cb_group_;
 };
 

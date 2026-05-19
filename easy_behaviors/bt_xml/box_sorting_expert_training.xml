@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+  <BehaviorTree ID="main_tree">
+    <Sequence>
+      <TriggerGripper active="False"/>
+      <Fallback>
+        <ObjectSelector input_type="box"
+                        output_type="{selected_container}"
+                        selected_bbox="{selected_bbox}"/>
+        <ForceFailure>
+          <Sequence>
+            <TriggerGripper active="False"/>
+            <Reset/>
+            <Sleep msec="15000"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+      <Fallback>
+        <Sequence>
+          <Sleep msec="500"/>
+          <RetryUntilSuccessful num_attempts="3">
+            <Sequence>
+              <Counter key="expert_pick_total"
+                       increment="1"
+                       count="{expert_pick_total_count}"/>
+              <Timeout msec="30000">
+                <Policy bbox="{selected_bbox}"
+                        skill="pick"
+                        mode="expert"/>
+              </Timeout>
+              <Counter key="expert_pick_success"
+                       increment="1"
+                       count="{expert_pick_success_count}"/>
+            </Sequence>
+          </RetryUntilSuccessful>
+        </Sequence>
+        <ForceFailure>
+          <Homing where="home"/>
+        </ForceFailure>
+      </Fallback>
+      <Sequence>
+        <Sleep msec="3000"/>
+        <ObjectSelector input_type="{selected_container}"
+                        output_type="{selected_container_2}"
+                        selected_bbox="{selected_bbox}"/>
+      </Sequence>
+      <Fallback>
+        <Sequence>
+          <Sleep msec="500"/>
+          <RetryUntilSuccessful num_attempts="3">
+            <Sequence>
+              <Counter key="expert_place_total"
+                       increment="1"
+                       count="{expert_place_total_count}"/>
+              <Timeout msec="30000">
+                <Policy bbox="{selected_bbox}"
+                        skill="place"
+                        mode="expert"/>
+              </Timeout>
+              <Counter key="expert_place_success"
+                       increment="1"
+                       count="{expert_place_success_count}"/>
+            </Sequence>
+          </RetryUntilSuccessful>
+          <Sleep msec="2000"/>
+        </Sequence>
+        <ForceFailure>
+          <Sequence>
+            <TriggerGripper active="False"/>
+            <Homing where="home"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Description of Node Models (used by Groot) -->
+  <TreeNodesModel>
+    <Action ID="Counter">
+      <input_port name="key"/>
+      <input_port name="increment"/>
+      <output_port name="count"/>
+    </Action>
+    <Action ID="Homing">
+      <input_port name="where"/>
+    </Action>
+    <Action ID="ObjectSelector">
+      <input_port name="input_type"/>
+      <output_port name="output_type"/>
+      <output_port name="selected_bbox"/>
+    </Action>
+    <Action ID="Policy">
+      <input_port name="bbox"/>
+      <input_port name="skill"/>
+      <input_port name="mode"/>
+    </Action>
+    <Action ID="Reset"/>
+    <Action ID="TriggerGripper">
+      <input_port name="active"/>
+    </Action>
+  </TreeNodesModel>
+
+</root>

@@ -15,7 +15,7 @@ from easy_interfaces.srv import SetString
 import random
 
 RL_BUFFER_CAPACITY = 10000
-BC_BUFFER_CAPACITY = 50000
+BC_BUFFER_CAPACITY = 10000
 VAL_BUFFER_CAPACITY = 2000
 
 
@@ -26,6 +26,8 @@ class SkillExecutionAgentInterface(AgentInterface):
             SkillExecutionActionInterface(node), 
             SkillExecutionStateInterface(node)
         )
+        
+        self.buffer_id = 0
         
         self.set_action_service = self._node.create_service(
             srv_type=SetString,
@@ -44,7 +46,25 @@ class SkillExecutionAgentInterface(AgentInterface):
             device="cuda"
         )
         
+        self.past_rl_replay_buffer = SkillExecutionReplayBuffer(
+            capacity=RL_BUFFER_CAPACITY,
+            image_shape=(30, 40, 3),
+            skill_dim=3,
+            robot_state_dim=16,
+            action_dim=7,
+            device="cuda"
+        )
+        
         self.bc_replay_buffer = SkillExecutionReplayBuffer(
+            capacity=BC_BUFFER_CAPACITY,
+            image_shape=(30, 40, 3),
+            skill_dim=3,
+            robot_state_dim=16,
+            action_dim=7,
+            device="cuda"
+        )
+        
+        self.past_bc_replay_buffer = SkillExecutionReplayBuffer(
             capacity=BC_BUFFER_CAPACITY,
             image_shape=(30, 40, 3),
             skill_dim=3,
@@ -64,13 +84,9 @@ class SkillExecutionAgentInterface(AgentInterface):
         
         self.sac_agent = SkillExecutionSACAgent(node)
         
-        if os.path.exists(self.buffer_folder):
-            self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loading replay buffers from {self.buffer_folder}...")
-            self.rl_replay_buffer.load_from_disk(self.buffer_folder + "/rl_replay_buffer.npz")
-            self.bc_replay_buffer.load_from_disk(self.buffer_folder + "/bc_replay_buffer.npz")
-            self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loaded {self.rl_replay_buffer.size()} RL samples and {self.bc_replay_buffer.size()} BC samples from disk.")
-        else:
-            self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing replay buffer found at {self.buffer_folder}, starting with empty buffers.")
+        self.last_load_stamp = time.time()
+        self.last_load_folder = "data_0"
+        self.load_random_buffers()
         
         if os.path.exists(self.validate_folder):
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loading validation buffer from {self.validate_folder}...")
@@ -84,7 +100,31 @@ class SkillExecutionAgentInterface(AgentInterface):
             self.sac_agent.load_model(self.model_folder)
         else:
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing model found at {self.model_folder}, starting with new agent.")
-        
+    
+    def load_random_buffers(self):
+        if os.path.exists(self.buffer_folder):
+            # Load folder names in buffer folder
+            folder_names = [f for f in os.listdir(self.buffer_folder) if "data_" in f]
+            
+            # Randomly select one folder
+            if len(folder_names) > 0: 
+                self.buffer_id = (self.buffer_id + 1) % len(folder_names)
+                selected_folder = folder_names[self.buffer_id]
+                
+                if selected_folder == self.last_load_folder:
+                    self._node.get_logger().info(f"[SkillExecutionAgentInterface] Randomly selected the same buffer folder {selected_folder} as last time, skipping reload.")
+                    return
+                
+                _buffer_folder = os.path.join(self.buffer_folder, selected_folder)
+                self.last_load_folder = selected_folder
+
+                
+                self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loading replay buffers from {self.buffer_folder}...")
+                self.past_rl_replay_buffer.load_from_disk(_buffer_folder + "/rl_replay_buffer.npz")
+                self.past_bc_replay_buffer.load_from_disk(_buffer_folder + "/bc_replay_buffer.npz")
+                self._node.get_logger().info(f"[SkillExecutionAgentInterface] Loaded {self.past_rl_replay_buffer.size()} RL samples and {self.past_bc_replay_buffer.size()} BC samples from disk.")
+        else:
+            self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing replay buffer found at {self.buffer_folder}, starting with empty buffers.")
         
     def set_action_callback(self, request, response):
         self._node.get_logger().info(f"Received request to set action to: {request.data}")
@@ -128,11 +168,18 @@ class SkillExecutionAgentInterface(AgentInterface):
     def _update_worker(self):
         try:
             with self._buffer_lock:
+                now = time.time()
+                if now - self.last_load_stamp > 60:  # Reload buffers every 1 minute
+                    self.load_random_buffers()
+                    self.last_load_stamp = now
+                    
                 rl_batch = self.rl_replay_buffer.sample(128, recent=True)
-                bc_batch = self.bc_replay_buffer.sample(1024, recent=False)
+                past_rl_batch = self.past_rl_replay_buffer.sample(128, recent=False)
+                bc_batch = self.bc_replay_buffer.sample(512, recent=False)
+                past_bc_batch = self.past_bc_replay_buffer.sample(512, recent=False)
                 val_batch = self.validate_buffer.sample(128)
 
-            losses = self.sac_agent.update(rl_batch, bc_batch, val_batch)
+            losses = self.sac_agent.update(rl_batch, past_rl_batch, bc_batch, past_bc_batch, val_batch)
             self.loss_visualizer.update(losses)
 
         except Exception as e:

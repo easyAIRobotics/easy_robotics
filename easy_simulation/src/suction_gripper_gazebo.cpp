@@ -120,7 +120,7 @@ void SuctionGripperPlugin::ScanForContactAndAttach(
               << dot_product << std::endl;
 
     // Check if contact normal aligns with suction direction
-    if (std::abs(dot_product) < 0.98) // Adjust threshold as needed
+    if (std::abs(dot_product) < 0.95) // Adjust threshold as needed
     {
       std::cerr << "[SuctionGripperPlugin] Contact normal does not align with suction direction." << std::endl;
       continue;

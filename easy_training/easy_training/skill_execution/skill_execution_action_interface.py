@@ -29,11 +29,22 @@ BASE_FRAME = 'base_link'
 
 MAX_JOINT_DELTA = 0.1  # Maximum allowed joint position change
 
-JOINT_LOWER_LIMITS = np.array([-2.65, -1.48, -0.58, -2.55, -2.5, -2.55])
-JOINT_UPPER_LIMITS = np.array([2.65, 0.08, 2.55, 2.55, 2.5, 2.55])
+JOINT_LOWER_LIMITS = np.array([-2.18, -1.48, -0.58, -2.58, -2.51, -2.58])
+JOINT_UPPER_LIMITS = np.array([2.18, 0.5, 2.59, 2.58, 2.51, 2.58])
 
 ACTION_MODE = "joint_positions" # or "eef_pose"
 # ACTION_MODE = "eef_pose"
+
+def check(name, x):
+    # print type if not a numpy array
+    if not isinstance(x, np.ndarray):
+        print(f"[{name}] Warning: Expected a numpy array but got {type(x)}", flush=True)
+        return False
+    # Check nan values of a numpy array and print the name and values if any are found
+    if np.isnan(x).any():
+        print(f"[{name}] NaN values found: {x}", flush=True)
+        return False
+    return True
 
 class SkillExecutionActionInterface(ActionInterface):
     def __init__(self, node: Node):
@@ -134,15 +145,20 @@ class SkillExecutionActionInterface(ActionInterface):
             "skill": state_interface.get_skill(),
             "robot_state": state_interface.get_robot_state(),
         }
+        # check("image", transition["image"])
+        # check("target_image", transition["target_image"])
+        # check("original_target_image", transition["original_target_image"])
+        # check("robot_state", transition["robot_state"])
         
         reward = 0.0
         if act_vec:
+            current_state = state_interface.get_state()
             if ACTION_MODE == "eef_pose":
                 act = {
                     "eef_pose": act_vec[:9],
                     "suction_command": act_vec[9]
                 }
-                joint_positions = self.solve_IK(act["eef_pose"], self.last_state["joint_positions"])
+                IK_success, joint_positions = self.solve_IK(act["eef_pose"], current_state["joint_positions"])
                 self._broadcast_target_tf(act["eef_pose"])
             else:  # ACTION_MODE == "joint_positions"
                 act = {
@@ -150,24 +166,28 @@ class SkillExecutionActionInterface(ActionInterface):
                     "suction_command": act_vec[6]
                 }
                 joint_positions = act["joint_positions"]
-                
-            if joint_positions and not self._check_joint_limits(joint_positions):
-                print(f"[SkillExecutionActionInterface] Joint limits violated for positions: {joint_positions}", flush=True)
-                joint_positions = [
-                    np.clip(joint_positions[i], JOINT_LOWER_LIMITS[i], JOINT_UPPER_LIMITS[i]) for i in range(len(joint_positions))
+                IK_success = True
+            bounded_joint_positions, penalty = self._make_bounded_joint_positions(current_state["joint_positions"], joint_positions, MAX_JOINT_DELTA)
+                   
+            if bounded_joint_positions and not self._check_joint_limits(bounded_joint_positions):
+                print(f"[SkillExecutionActionInterface] Joint limits violated for positions: {bounded_joint_positions}", flush=True)
+                bounded_joint_positions = [
+                    np.clip(bounded_joint_positions[i], JOINT_LOWER_LIMITS[i], JOINT_UPPER_LIMITS[i]) for i in range(len(bounded_joint_positions))
                 ]
                 reward -= IK_FAILURE_PENALTY
             
-            if joint_positions:
-                bounded_joint_positions, penalty = self._make_bounded_joint_positions(self.last_state["joint_positions"], joint_positions, MAX_JOINT_DELTA)
+            if bounded_joint_positions:
+                if not self.check_collision(bounded_joint_positions):
+                    self.send_joint_command(bounded_joint_positions)
+                else:
+                    reward -= COLLISION_PENALTY
                 reward -= penalty
-                self.send_joint_command(bounded_joint_positions)
                 self.send_gripper_command(act["suction_command"])
             taken_act = act
             
             self.wait_for_next_state()
             
-            if not joint_positions:
+            if not IK_success:
                 reward -= IK_FAILURE_PENALTY  # Penalize for IK failure
             
             if state_interface.check_collision():
@@ -198,7 +218,7 @@ class SkillExecutionActionInterface(ActionInterface):
                 act_done = state_interface.get_done()
                 
                 self._node.get_logger().info(f"suction_command: {taken_act['suction_command']} vs last cmd {self.last_state['cmd_suction_state']}, tf_dist: {tf_dist}")
-                if tf_dist < 0.05  and act_done == 0.0 and \
+                if tf_dist < 0.1  and act_done == 0.0 and \
                         taken_act["suction_command"] == self.last_state["cmd_suction_state"]:
                     return 0.0, {}  # No action taken, skipping
                 
@@ -230,8 +250,17 @@ class SkillExecutionActionInterface(ActionInterface):
             "next_robot_state": state_interface.get_robot_state(),
             "done": act_done
         })
-                
-        return reward, transition
+        # check("j_action", transition["j_action"])
+        # check("e_action", transition["e_action"])
+        # check("next_image", transition["next_image"])
+        # check("next_target_image", transition["next_target_image"])
+        # check("next_original_target_image", transition["next_original_target_image"])
+        # check("next_robot_state", transition["next_robot_state"])
+        
+        if not (transition["next_original_target_image"] is None or transition["original_target_image"] is None):
+            return reward, transition
+        else:
+            return 0.0, {}
     
     
     def solve_IK(self, target_pose: list[float], initial_joint_positions: list[float]) -> list[float]:
@@ -248,14 +277,8 @@ class SkillExecutionActionInterface(ActionInterface):
         if future.result() is not None:
             res = future.result()
             print(f"[SkillExecutionActionInterface] IK service response: success={res.success}, joints='{res.joint_positions}'", flush=True)
-            if res.success:
-                joint_positions = res.joint_positions
-                print(f"[SkillExecutionActionInterface] IK solution found: {joint_positions}", flush=True)
-            else:
-                print(f"[SkillExecutionActionInterface] IK solution not found with reason: {res.message}", flush=True)
-                return []
                 
-        return joint_positions.tolist()
+        return res.success, res.joint_positions.tolist()
     
     
     def check_collision(self, joint_positions: list[float]) -> bool:
@@ -311,7 +334,7 @@ class SkillExecutionActionInterface(ActionInterface):
         bounded_joints = []
         j_delta = np.array(target_joints) - np.array(current_joints)
         abs_delta = np.abs(j_delta)
-        penalty = -abs_delta[abs_delta >= MAX_JOINT_DELTA].sum()
+        penalty = abs_delta[abs_delta >= MAX_JOINT_DELTA].sum()
         max_abs_delta = np.max(np.abs(j_delta))
         print(f"max abs delta: {max_abs_delta}, j_delta: {j_delta}", flush=True)
         if max_abs_delta > max_delta:
