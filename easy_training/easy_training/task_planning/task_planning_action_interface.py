@@ -6,6 +6,7 @@ from easy_training.utils import *
 from easy_interfaces.msg import BoundingBox
 from easy_interfaces.srv import SetString
 from std_msgs.msg import Float64MultiArray
+from sensor_msgs.msg import Image
 
 
 class TaskPlanningActionInterface(ActionInterface):
@@ -13,15 +14,16 @@ class TaskPlanningActionInterface(ActionInterface):
         super().__init__(node)
         self.skill_vector = np.zeros(3, dtype=np.float32)
         self.frequency = 0.5
-        self.bbox_publisher = self._node.create_publisher(
-            BoundingBox,
-            "selected_box",
-            1
-        )
         
         self.skill_vector_publisher = self._node.create_publisher(
             Float64MultiArray,
             "selected_skill_vector",
+            1
+        )
+        
+        self.heatmap_publisher = self._node.create_publisher(
+            Image,
+            "heatmap",
             1
         )
         
@@ -40,82 +42,48 @@ class TaskPlanningActionInterface(ActionInterface):
         skill_vec_msg.data = self.skill_vector.tolist()
         self.skill_vector_publisher.publish(skill_vec_msg)
         
-    def perform(self, act_vec: list, state_interface: StateInterface) -> dict:
+    def perform(self, act: tuple, state_interface: StateInterface) -> dict:
         transition = {
             "rgb_image": state_interface.get_rgb_image(),
-            "bbox_list": state_interface.get_bbox_list(),
-            "class_list": state_interface.get_class_list(),
             "robot_state": state_interface.get_robot_state(),
         }
-        
+        heatmap = state_interface.get_heatmap()
+        skill_vector = self.skill_vector
         reward = 0.0
-        if act_vec:
-            bbox, class_embedded = self.select_bbox(act_vec[:20], transition["bbox_list"], transition["class_list"])
-            self.send_bbox(bbox, class_embedded)
-            self.send_skill(act_vec[20:23])
-            self.skill_vector = act_vec[20:23]
-            self.skill_execution_mode_client.call_async(SetString.Request(data="training/exec"))
+        if act:
+            skill_vector = act[0]
+            heatmap = act[1]
+            
+            # TODO: Perfom action here
             self.wait_for_next_state()
-            taken_action = act_vec
             
         else:
-            skill_vec = self.skill_vector
-            selected_bbox_center = state_interface.get_selected_bbox_center()
-            id = self._find_bbox_id_by_center(selected_bbox_center, transition["bbox_list"])
-            prob_vec = [0.0] * NUM_HEADS
-            prob_vec[id] = 1.0
-            taken_action = np.concatenate([prob_vec, skill_vec])
             self.skill_execution_mode_client.call_async(SetString.Request(data="training/exec"))
             self.wait_for_next_state()
-            print(f"Selected bbox id: {id}, center: {selected_bbox_center}, skill vector: {skill_vec}", flush=True)
         
         reward = state_interface.get_reward()
         act_done = state_interface.get_done()    
         transition.update({
             "done": act_done,
-            "action": taken_action,
+            "heatmap": heatmap,
+            "skill": skill_vector
         })
         
         return reward, transition
     
-    def _find_bbox_id_by_center(self, center, bbox_list):
-        if self._last_selected_bbox_center is not None and np.linalg.norm(np.array(center) - np.array(self._last_selected_bbox_center)) < 1e-3:
-            return 0
+    def _publish_heatmap(self, heatmap):
+        heatmap_msg = Image()
         
-        # New selection, update last selected center
-        self._last_selected_bbox_center = center
-        min_dist = float('inf')
-        min_id = 0
-        for i in range(NUM_HEADS):
-            dist = np.linalg.norm(np.array(center) - np.array(bbox_list[i][:2]))
-            if dist < min_dist:
-                min_dist = dist
-                min_id = i
-        return min_id
-    
-    def select_bbox(self, prob_list, bbox_list, class_list):
-        prb_sum = sum(prob_list)
-        print(f"Selecting bbox with prob sum: {prb_sum}", flush=True)
-        if prb_sum > 0:
-            prob_list = [p / prb_sum for p in prob_list]
-        else:            
-            prob_list = [1.0 / NUM_HEADS] * NUM_HEADS
-            
-        _id = np.random.choice(len(prob_list), p=prob_list)
-        return bbox_list[_id], class_list[_id]
-    
-    def send_bbox(self, bbox, class_embedded):
-        if bbox[0] == 0 and bbox[1] == 0:
-            return
+        # Convert heatmap to a format suitable for publishing (e.g., as a grayscale image)
+        heatmap_normalized = (heatmap * 255).astype(np.uint8)
+        heatmap_msg.data = heatmap_normalized.tobytes()
+        heatmap_msg.height, heatmap_msg.width = heatmap_normalized.shape
+        heatmap_msg.encoding = "mono8"
         
-        bbox_msg = BoundingBox()
-        bbox_msg.x = int(bbox[0])
-        bbox_msg.y = int(bbox[1])
-        bbox_msg.w = int(bbox[2])
-        bbox_msg.h = int(bbox[3])
-        bbox_msg.class_id = ""
-        bbox_msg.confidence = 1.0
-        self.bbox_publisher.publish(bbox_msg)
+        heatmap_msg.header.stamp = self._node.get_clock().now().to_msg()
+        heatmap_msg.header.frame_id = "heatmap_frame"
+        self.heatmap_publisher.publish(heatmap_msg)
+        
     
     def send_skill(self, skill_vec):
         skill_msg = Float64MultiArray()

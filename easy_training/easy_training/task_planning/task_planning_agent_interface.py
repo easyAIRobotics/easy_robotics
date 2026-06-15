@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+import traceback
 
 from easy_training.agent_interfaces import AgentInterface, ActionInterface, StateInterface
 from easy_training.task_planning.task_planning_action_interface import TaskPlanningActionInterface
@@ -106,14 +107,7 @@ class TaskPlanningAgentInterface(AgentInterface):
             self._node.get_logger().warning("[TaskPlanningAgentInterface] No state available for action inference.")
             return None
         
-        action = self.sac_agent.infer_action(state, deterministic)
-        
-        if action is not None:
-            action = action.tolist()[0]
-        else:
-            action = []
-
-        return action
+        return self.sac_agent.infer_action(state, deterministic)
     
     
     def update(self):
@@ -147,6 +141,9 @@ class TaskPlanningAgentInterface(AgentInterface):
 
         except Exception as e:
             self._node.get_logger().error(f"[TaskPlanningAgentInterface] Update failed: {e}")
+            self._node.get_logger().error(
+                traceback.format_exc()
+            )
             
     
     def reset(self):
@@ -170,10 +167,9 @@ class TaskPlanningAgentInterface(AgentInterface):
         with self._buffer_lock:
             self.bc_replay_buffer.add(
                 transition["rgb_image"],
-                transition["bbox_list"],
-                transition["class_list"],
+                transition["heatmap"],
                 transition["robot_state"],
-                transition["action"],
+                transition["skill"],
                 transition["reward"],
                 transition["done"]
             )

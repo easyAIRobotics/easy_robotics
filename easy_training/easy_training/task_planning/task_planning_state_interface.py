@@ -5,7 +5,6 @@ import cv2
 from easy_training.agent_interfaces import StateInterface, AgentMode
 from easy_training.utils import *
 from easy_training.task_planning.task_planning_cfg import *
-from easy_training.task_planning.text_embedding import ClassTextEmbedding
 
 from std_msgs.msg import Bool
 from sensor_msgs.msg import Image
@@ -16,15 +15,13 @@ class TaskPlanningStateInterface(StateInterface):
         super().__init__(node)
         
         self.state = {
-            "bbox_list": [[0.0, 0.0, 0.0, 0.0]] * NUM_HEADS,
-            "class_list": [[0.0] * TEXT_EMBEDDING_DIM] * NUM_HEADS,
+            "heatmap": None,
             "robot_state": [0.0],
             "rgb_image": None,
             "done": 0.0,
         }
-        self.selected_bbox_center = None
-        
-        self.class_text_embedding = ClassTextEmbedding()
+        self.img_width = 640
+        self.img_height = 480
         
         self.bboxes_subscriber = self._node.create_subscription(
             BoundingBoxes,
@@ -65,30 +62,31 @@ class TaskPlanningStateInterface(StateInterface):
         self.done = False
         
     def check_sanity(self):
-        return self.selected_bbox_center is not None and self.state["rgb_image"] is not None
+        return self.state["heatmap"] is not None and self.state["rgb_image"] is not None
         
     def _bboxes_callback(self, msg: BoundingBoxes):
-        i = 1
-        for box in msg.bboxes:
-            bbox = [box.x, box.y, box.w, box.h]
-            class_name = box.class_id
-            self.state["bbox_list"][i] = bbox
-            self.state["class_list"][i] = self.class_text_embedding.encode([class_name])[0]
-            i += 1
-            
-        for j in range(i, NUM_HEADS):
-            self.state["bbox_list"][j] = [0.0, 0.0, 0.0, 0.0]
-            self.state["class_list"][j] = [0.0] * TEXT_EMBEDDING_DIM
+        return
             
     def _rgb_image_callback(self, msg: Image):
         rgb_image = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         # Resize to 224x224
         rgb_image = cv2.resize(rgb_image, (224, 224))
         self.state["rgb_image"] = rgb_image
+        self.img_width = msg.width
+        self.img_height = msg.height
+        
         
     def _selected_bbox_callback(self, msg: BoundingBox):
-        self.selected_bbox_center = [msg.x, msg.y]
-        print(f"Selected bbox center updated to: {self.selected_bbox_center}", flush=True)
+        # Create a heatmap with the same size as the input image (224x224)
+        heatmap = np.zeros((224, 224), dtype=np.float32)
+        # Fill the heatmap with 1s in the area of the selected bounding box
+        # Resize the bounding box coordinates to match the heatmap size
+        x = int(msg.x * 224 / self.img_width)
+        y = int(msg.y * 224 / self.img_height)
+        w = int(msg.w * 224 / self.img_width)
+        h = int(msg.h * 224 / self.img_height)
+        heatmap[y-h//2:y+h//2, x-w//2:x+w//2] = 1.0
+        self.state["heatmap"] = heatmap
                 
     def set_action(self, action):
         self.action = action
@@ -96,18 +94,12 @@ class TaskPlanningStateInterface(StateInterface):
         
     def get_rgb_image(self):
         return self.state["rgb_image"]
-        
-    def get_bbox_list(self):
-        return self.state["bbox_list"]
-    
-    def get_class_list(self):
-        return self.state["class_list"]
     
     def get_robot_state(self):
         return self.state["robot_state"]
-    
-    def get_selected_bbox_center(self):
-        return self.selected_bbox_center
+
+    def get_heatmap(self):
+        return self.state["heatmap"]
     
     def get_reward(self):
         return 0.0

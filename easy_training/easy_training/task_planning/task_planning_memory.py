@@ -11,10 +11,9 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
     ):
         super().__init__(capacity)
         self.rgb_image_buffer = np.zeros((capacity, 224, 224, 3), dtype=np.uint8)
-        self.bbox_list_buffer = np.zeros((capacity, NUM_HEADS, 4), dtype=np.float32)
-        self.class_list_buffer = np.zeros((capacity, NUM_HEADS, TEXT_EMBEDDING_DIM), dtype=np.float32)
+        self.heatmap_buffer = np.zeros((capacity, 224, 224), dtype=np.float32)
         self.robot_state_buffer = np.zeros((capacity, 1), dtype=np.float32)
-        self.action_buffer = np.zeros((capacity, 23), dtype=np.float32)
+        self.skill = np.zeros((capacity, 3), dtype=np.float32)
         self.reward_buffer = np.zeros((capacity, 1), dtype=np.float32)
         self.done_buffer = np.zeros((capacity, 1), dtype=np.float32)
         
@@ -22,18 +21,16 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
     def add(
         self,
         rgb_image,
-        bbox_list,
-        class_list,
+        heatmap,
         robot_state,
-        action,
+        skill,
         reward,
         done
     ):
         self.rgb_image_buffer[self.ptr] = rgb_image
-        self.bbox_list_buffer[self.ptr] = bbox_list
-        self.class_list_buffer[self.ptr] = class_list
+        self.heatmap_buffer[self.ptr] = heatmap
         self.robot_state_buffer[self.ptr] = robot_state
-        self.action_buffer[self.ptr] = action
+        self.skill[self.ptr] = skill
         self.reward_buffer[self.ptr] = reward
         self.done_buffer[self.ptr] = done
         
@@ -56,18 +53,16 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
             idxs = np.random.choice(self.buffer_size, size, replace=False)
         
         rgb_image = torch.from_numpy(self.rgb_image_buffer[idxs]).to(self.device)
-        bbox_list = torch.from_numpy(self.bbox_list_buffer[idxs]).to(self.device)
-        class_list = torch.from_numpy(self.class_list_buffer[idxs]).to(self.device)
+        heatmap = torch.from_numpy(self.heatmap_buffer[idxs]).to(self.device)
         robot_state = torch.from_numpy(self.robot_state_buffer[idxs]).to(self.device)
-        action = torch.from_numpy(self.action_buffer[idxs]).to(self.device)
+        skill = torch.from_numpy(self.skill[idxs]).to(self.device)
         reward = torch.from_numpy(self.reward_buffer[idxs]).to(self.device)
         done = torch.from_numpy(self.done_buffer[idxs]).to(self.device)
         return (
             rgb_image,
-            bbox_list,
-            class_list,
+            heatmap,
             robot_state,
-            action,
+            skill,
             reward,
             done
         )
@@ -78,18 +73,16 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
             return None
         
         rgb_image = torch.from_numpy(self.rgb_image_buffer[:self.buffer_size]).to(self.device)
-        bbox_list = torch.from_numpy(self.bbox_list_buffer[:self.buffer_size]).to(self.device)
-        class_list = torch.from_numpy(self.class_list_buffer[:self.buffer_size]).to(self.device)
+        heatmap = torch.from_numpy(self.heatmap_buffer[:self.buffer_size]).to(self.device)
         robot_state = torch.from_numpy(self.robot_state_buffer[:self.buffer_size]).to(self.device)
-        action = torch.from_numpy(self.action_buffer[:self.buffer_size]).to(self.device)
+        skill = torch.from_numpy(self.skill[:self.buffer_size]).to(self.device)
         reward = torch.from_numpy(self.reward_buffer[:self.buffer_size]).to(self.device)
         done = torch.from_numpy(self.done_buffer[:self.buffer_size]).to(self.device)
         return (
             rgb_image,
-            bbox_list,
-            class_list,
+            heatmap,
             robot_state,
-            action,
+            skill,
             reward,
             done
         )
@@ -99,10 +92,9 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
         np.savez_compressed(
             file_path,
             rgb_image_buffer=self.rgb_image_buffer[:self.buffer_size],
-            bbox_list_buffer=self.bbox_list_buffer[:self.buffer_size],
-            class_list_buffer=self.class_list_buffer[:self.buffer_size],
+            heatmap_buffer=self.heatmap_buffer[:self.buffer_size],
             robot_state_buffer=self.robot_state_buffer[:self.buffer_size],
-            action_buffer=self.action_buffer[:self.buffer_size],
+            skill=self.skill[:self.buffer_size],
             reward_buffer=self.reward_buffer[:self.buffer_size],
             done_buffer=self.done_buffer[:self.buffer_size]
         )
@@ -110,12 +102,12 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
     def load_from_disk(self, file_path: str):
         data = np.load(file_path)
         self.rgb_image_buffer[:data['rgb_image_buffer'].shape[0]] = data['rgb_image_buffer']
-        self.bbox_list_buffer[:data['bbox_list_buffer'].shape[0]] = data['bbox_list_buffer']
+        self.heatmap_buffer[:data['heatmap_buffer'].shape[0]] = data['heatmap_buffer']
         self.class_list_buffer[:data['class_list_buffer'].shape[0]] = data['class_list_buffer']
         self.robot_state_buffer[:data['robot_state_buffer'].shape[0]] = data['robot_state_buffer']
-        self.action_buffer[:data['action_buffer'].shape[0]] = data['action_buffer']
+        self.skill[:data['skill'].shape[0]] = data['skill']
         self.reward_buffer[:data['reward_buffer'].shape[0]] = data['reward_buffer']
         self.done_buffer[:data['done_buffer'].shape[0]] = data['done_buffer']
         
-        self.buffer_size = data['bbox_list_buffer'].shape[0]
+        self.buffer_size = data['heatmap_buffer'].shape[0]
         self.ptr = self.buffer_size % self.capacity
