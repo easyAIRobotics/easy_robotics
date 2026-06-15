@@ -3,6 +3,7 @@ from easy_interfaces.msg import BoundingBoxes
 from rclpy.node import Node
 
 from easy_interfaces.srv import SetString
+from std_msgs.msg import String
 
 class ModeModule:
     def __init__(self, node: Node, ws_server):
@@ -13,7 +14,22 @@ class ModeModule:
         self.action = None
         
         self.agent_service = {}
-
+        
+        self.agent_subscription = {
+            "skill_execution/action": self._node.create_subscription(
+                String,
+                "/skill_execution/action",
+                self._on_skill_execution_action,
+                10,
+            ),
+            "skill_execution/mode": self._node.create_subscription(
+                String,
+                "/skill_execution/mode",
+                self._on_skill_execution_mode,
+                10,
+            ),
+        }
+        
         self._node.get_logger().info("ModeModule initialized")
 
     # Called later for inbound WS messages
@@ -48,9 +64,9 @@ class ModeModule:
             f"Selected action received: {self.action}"
         )
         
-        # Only call skill execution action selection
-        if self.agent != "skill_execution":
-            return
+        # # Only call skill execution action selection
+        # if self.agent != "skill_execution":
+        #     return
         
         srv_name = self.agent + "/set_action"
         if not srv_name in self.agent_service:
@@ -130,3 +146,20 @@ class ModeModule:
         self.agent_service[srv_name].call_async(req)
         
         return
+    
+
+    def _on_skill_execution_action(self, msg: String):
+        payload = {
+            "type": "skill_execution/action",
+            "data": msg.data
+        }
+        
+        self._node.send_ws(payload)
+        
+    def _on_skill_execution_mode(self, msg: String):
+        payload = {
+            "type": "skill_execution/mode",
+            "data": msg.data
+        }
+        
+        self._node.send_ws(payload)

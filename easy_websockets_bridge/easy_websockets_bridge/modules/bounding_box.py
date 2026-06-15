@@ -20,6 +20,13 @@ class BoundingBoxModule:
             1,
         )
         
+        self.selected_box_sub = self._node.create_subscription(
+            BoundingBox,
+            "/selected_box",
+            self._on_selected_box,
+            10,
+        )
+        
         self.selected_point_pub = self._node.create_publisher(
             Pixel,
             "/selected_point",
@@ -55,6 +62,20 @@ class BoundingBoxModule:
         }
         
         self._node.send_ws(payload)
+        
+    def _on_selected_box(self, msg: BoundingBox):
+        payload = {
+            "type": "selected_box",
+            "box": {
+                "label": msg.class_id,
+                "score": float(msg.confidence),
+                "x": int(msg.x),
+                "y": int(msg.y),
+                "w": int(msg.w),
+                "h": int(msg.h),
+            },
+        }
+        self._node.send_ws(payload)
 
     # Called later for inbound WS messages
     def handle_ws_message(self, data: dict):
@@ -66,7 +87,7 @@ class BoundingBoxModule:
 
             msg = BoundingBox()
             msg.class_id = box["label"]
-            msg.confidence = box["score"]
+            msg.confidence = box["confidence"]
             msg.x = box["x"]
             msg.y = box["y"]
             msg.w = box["w"]

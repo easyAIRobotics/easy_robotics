@@ -77,6 +77,8 @@ class SkillExecutionActionInterface(ActionInterface):
         
         
     def set_action(self, action):
+        if self.action == action:
+            return
         super().set_action(action)
         # Enable or disable expert based on mode
         enable_expert_req = SetBool.Request()
@@ -99,6 +101,8 @@ class SkillExecutionActionInterface(ActionInterface):
         
         
     def set_mode(self, mode: AgentMode):
+        if self._mode == mode:
+            return
         super().set_mode(mode)
         self._node.get_logger().info(f"[SkillExecutionActionInterface] Mode set to: {self._mode.name}")
         
@@ -145,10 +149,6 @@ class SkillExecutionActionInterface(ActionInterface):
             "skill": state_interface.get_skill(),
             "robot_state": state_interface.get_robot_state(),
         }
-        # check("image", transition["image"])
-        # check("target_image", transition["target_image"])
-        # check("original_target_image", transition["original_target_image"])
-        # check("robot_state", transition["robot_state"])
         
         reward = 0.0
         if act_vec:
@@ -181,7 +181,6 @@ class SkillExecutionActionInterface(ActionInterface):
                     self.send_joint_command(bounded_joint_positions)
                 else:
                     reward -= COLLISION_PENALTY
-                reward -= penalty
                 self.send_gripper_command(act["suction_command"])
             taken_act = act
             

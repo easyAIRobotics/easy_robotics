@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+import numpy as np
 
 from easy_training.agent_interfaces import AgentInterface, ActionInterface, StateInterface
 from easy_training.skill_execution.skill_execution_action_interface import SkillExecutionActionInterface
@@ -11,6 +12,7 @@ from easy_training.sac.skill_execution_sac_agent import SkillExecutionSACAgent
 import rclpy
 from rclpy.node import Node
 from easy_interfaces.srv import SetString
+from std_msgs.msg import String, Float64MultiArray
 
 import random
 
@@ -33,6 +35,17 @@ class SkillExecutionAgentInterface(AgentInterface):
             srv_type=SetString,
             srv_name=f"{agent_name}/set_action",
             callback=self.set_action_callback
+        )
+        self.skill_vector_subscriber = self._node.create_subscription(
+            Float64MultiArray,
+            "selected_skill_vector",
+            self._skill_vector_callback,
+            1
+        )
+        self.action_publisher = self._node.create_publisher(
+            String,
+            f"{agent_name}/action",
+            1,
         )
         self.action = "pick"
         self.action_interface.set_action(self.action)
@@ -127,13 +140,21 @@ class SkillExecutionAgentInterface(AgentInterface):
             self._node.get_logger().info(f"[SkillExecutionAgentInterface] No existing replay buffer found at {self.buffer_folder}, starting with empty buffers.")
         
     def set_action_callback(self, request, response):
+        if self.action == request.data:
+            return SetString.Response(success=True, message=f"Agent action is already set to {request.data}")
         self._node.get_logger().info(f"Received request to set action to: {request.data}")
         self.action = request.data
         self.action_interface.set_action(self.action)
         self.state_interface.set_action(self.action)
+        self.action_publisher.publish(String(data=self.action))
         response.success = True
         response.message = f"Agent action set to {request.data}"
         return response
+    
+    
+    def _skill_vector_callback(self, msg):
+        skill_vector = np.array(msg.data, dtype=np.float32)
+        self.state_interface.set_skill_vector(skill_vector)
     
 
     def infer_action(self, deterministic=True):

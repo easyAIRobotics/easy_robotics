@@ -3,6 +3,7 @@ import time
 import torch
 import torch.nn as nn
 from torch.distributions import Normal, Bernoulli
+from torch.distributions.relaxed_bernoulli import LogitRelaxedBernoulli
 import torch.nn.functional as F
 
 import numpy as np
@@ -81,14 +82,11 @@ class SkillExecutionPolicyNetwork(nn.Module):
         self.fc5 = nn.Linear(hidden_dim // 2, hidden_dim // 4)
 
         # 6 continuous
-        self.mean = nn.Linear(hidden_dim // 4, action_dim - 1)
-        self.log_std = nn.Linear(hidden_dim // 4, action_dim - 1)
+        self.mean = nn.Linear(hidden_dim // 4, action_dim)
+        self.log_std = nn.Linear(hidden_dim // 4, action_dim)
 
-        # 1 binary
-        self.logit = nn.Linear(hidden_dim // 4, 1)
-
-        self.LOG_STD_MIN = -10
-        self.LOG_STD_MAX = -5
+        self.LOG_STD_MIN = -10.0
+        self.LOG_STD_MAX = -5.0
 
     def forward(self, img, target_img, original_target_img, skill, robot):
         scene_z = self.scene_encoder(img)
@@ -104,15 +102,15 @@ class SkillExecutionPolicyNetwork(nn.Module):
 
         mean = self.mean(h5)
         log_std = torch.clamp(self.log_std(h5), self.LOG_STD_MIN, self.LOG_STD_MAX)
-        logit = self.logit(h5)
 
-        return mean, log_std, logit
+        return mean, log_std
 
     def sample(self, img, target_img, original_target_img, skill, robot):
-        mean, log_std, logit = self.forward(img, target_img, original_target_img, skill, robot)
+        mean, log_std = self.forward(img, target_img, original_target_img, skill, robot)
 
         # ===== continuous act =====
         std = log_std.exp()
+        print(f"std: {std.mean().item():.4f}", flush=True)
         normal = Normal(mean, std)
 
         z = normal.rsample()
@@ -122,24 +120,15 @@ class SkillExecutionPolicyNetwork(nn.Module):
         log_prob_cont -= torch.log(1 - action_cont.pow(2) + 1e-6)
         log_prob_cont = log_prob_cont.sum(dim=-1, keepdim=True)
 
-        # ===== binary act (1 dim) =====
-        bern = Bernoulli(logits=logit)
-
-        action_bin = bern.sample()   # {0,1}
-
-        log_prob_bin = bern.log_prob(action_bin)
-        log_prob_bin = log_prob_bin.sum(dim=-1, keepdim=True)
-
         # ===== combine =====
-        action = torch.cat([action_cont, action_bin], dim=-1)
-        log_prob = log_prob_cont + log_prob_bin
+        action = action_cont
+        log_prob = log_prob_cont
         return action, log_prob
 
     def deterministic(self, img, target_img, original_target_img, skill, robot):
-        mean, _, logit = self.forward(img, target_img, original_target_img, skill, robot)
+        mean, log_std = self.forward(img, target_img, original_target_img, skill, robot)
         robot_act = torch.tanh(mean)
-        gripper_act = (torch.sigmoid(logit) > 0.5).float()
-        return torch.cat([robot_act, gripper_act], dim=-1), logit
+        return robot_act, log_std
 
 
 class SkillExecutionCriticNetwork(nn.Module):
@@ -206,8 +195,8 @@ class SkillExecutionSACAgent(SACAgent):
     def __init__(
         self, node: Node,
         gamma=0.98,
-        tau=0.02,
-        alpha=0.05,
+        tau=0.01,
+        alpha=0.0,
         bc_weight=10.0,
         lr=5e-4
     ):
@@ -408,9 +397,8 @@ class SkillExecutionSACAgent(SACAgent):
                 flush=True,
             )
 
-            if not is_bc:
-                for key in acc.keys():
-                    acc[key].append(batch[key])
+            for key in acc.keys():
+                acc[key].append(batch[key])
 
             if is_bc:
                 for key in bc_acc.keys():
@@ -478,15 +466,8 @@ class SkillExecutionSACAgent(SACAgent):
             )
 
             target_q = torch.min(target_q1, target_q2)
-
-            if next_log_prob.ndim == 1:
-                next_log_prob = next_log_prob.unsqueeze(-1)
-
-            target_v = target_q - self.alpha * next_log_prob
-
-            q_target = (
-                rewards
-                + (1.0 - dones) * self.gamma * target_v
+            q_target = rewards + (1.0 - dones) * self.gamma * (
+                target_q - self.alpha * next_log_prob
             )
 
         q1_pred, q2_pred = self.q(
@@ -504,22 +485,8 @@ class SkillExecutionSACAgent(SACAgent):
         critic_loss = q1_loss + q2_loss
 
         self.q_optimizer.zero_grad()
-
         critic_loss.backward()
-
-        torch.nn.utils.clip_grad_norm_(
-            self.q.parameters(),
-            10.0,
-        )
-
         self.q_optimizer.step()
-
-        ########################################
-        # --------- Freeze Critic --------------
-        ########################################
-
-        for p in self.q.parameters():
-            p.requires_grad = False
 
         ########################################
         # --------- Policy SAC Loss ------------
@@ -560,11 +527,6 @@ class SkillExecutionSACAgent(SACAgent):
             device=img.device,
         )
 
-        bc_joint_loss = torch.tensor(
-            0.0,
-            device=img.device,
-        )
-
         if len(bc_acc["img"]) > 0:
 
             bc_batch = cat_dict(bc_acc)
@@ -582,7 +544,7 @@ class SkillExecutionSACAgent(SACAgent):
             else:
                 bc_actions[:, :9] /= self.max_range
 
-            bc_actions_pred, logit = self.policy.deterministic(
+            bc_actions_pred, _ = self.policy.deterministic(
                 bc_img,
                 bc_target_img,
                 bc_original_target_img,
@@ -594,58 +556,44 @@ class SkillExecutionSACAgent(SACAgent):
                 bc_actions_pred[:, :self.gripper_act_id],
                 bc_actions[:, :self.gripper_act_id],
             )
-
-            suction_loss = F.binary_cross_entropy_with_logits(
-                logit.squeeze(-1),
+            
+            bc_suction_loss = F.mse_loss(
+                bc_actions_pred[:, self.gripper_act_id],
                 bc_actions[:, self.gripper_act_id],
             )
 
             bc_loss = (
                 JOINT_WEIGHT * bc_joint_loss
-                + SUCTION_WEIGHT * suction_loss
+                + SUCTION_WEIGHT * bc_suction_loss
             )
 
         ########################################
         # --------- Total Actor Loss -----------
         ########################################
 
-        total_policy_loss = (
-            sac_loss
-            + self.bc_weight * bc_loss
-        )
+        # total_policy_loss = (
+        #     sac_loss
+        #     + self.bc_weight * bc_loss
+        # )
+        total_policy_loss = self.bc_weight * bc_loss
         
-        # total_policy_loss = self.bc_weight * bc_loss
-
         self.policy_optimizer.zero_grad()
-
         total_policy_loss.backward()
-
-        torch.nn.utils.clip_grad_norm_(
-            self.policy.parameters(),
-            10.0,
-        )
-
         self.policy_optimizer.step()
-
-        ########################################
-        # --------- Unfreeze Critic ------------
-        ########################################
-
-        for p in self.q.parameters():
-            p.requires_grad = True
 
         ########################################
         # --------- Soft Update ----------------
         ########################################
 
-        for target_param, param in zip(
-            self.target_q.parameters(),
-            self.q.parameters(),
-        ):
-            target_param.data.copy_(
-                self.tau * param.data
-                + (1.0 - self.tau) * target_param.data
-            )
+        if  self.step % 100 == 0:
+            for target_param, param in zip(
+                self.target_q.parameters(),
+                self.q.parameters(),
+            ):
+                target_param.data.copy_(
+                    self.tau * param.data
+                    + (1.0 - self.tau) * target_param.data
+                )
 
         self.step += 1
 
@@ -668,7 +616,7 @@ class SkillExecutionSACAgent(SACAgent):
 
             with torch.no_grad():
 
-                val_actions_pred, val_logit = (
+                val_actions_pred, _ = (
                     self.policy.deterministic(
                         val_batch["img"],
                         val_batch["target_img"],
@@ -682,26 +630,13 @@ class SkillExecutionSACAgent(SACAgent):
                     val_actions_pred[:, :self.gripper_act_id],
                     val_actions[:, :self.gripper_act_id],
                 )
-
-                val_suction_loss = (
-                    F.binary_cross_entropy_with_logits(
-                        val_logit.squeeze(-1),
-                        val_actions[:, self.gripper_act_id],
-                    )
+                
+                val_suction_loss = F.mse_loss(
+                    val_actions_pred[:, self.gripper_act_id],
+                    val_actions[:, self.gripper_act_id],
                 )
-
-                val_loss = (
-                    JOINT_WEIGHT * val_joint_loss
-                    + SUCTION_WEIGHT * val_suction_loss
-                )
-
-                print(
-                    f"[Validation] "
-                    f"loss={val_loss.item():.4f} "
-                    f"joint={val_joint_loss.item():.4f} "
-                    f"suction={val_suction_loss.item():.4f}",
-                    flush=True,
-                )
+                
+                print(f"[SkillExecutionSACAgent] Predicted action vs action: {val_actions_pred[:2, :self.gripper_act_id + 1]} vs {val_actions[:2, :self.gripper_act_id + 1]}", flush=True)
 
         ########################################
         # --------- Return ---------------------
@@ -713,12 +648,10 @@ class SkillExecutionSACAgent(SACAgent):
             "q2_loss": q2_loss.item(),
             "critic_loss": critic_loss.item(),
             "sac_loss": sac_loss.item(),
-            "bc_loss": bc_joint_loss.item(),
+            "bc_loss": bc_loss.item(),
             "val_loss": (
                 val_joint_loss.item()
                 if isinstance(val_joint_loss, torch.Tensor)
-                else val_loss
+                else val_joint_loss
             ),
-            "update_time": time.time() - start_update_time,
         }
-        

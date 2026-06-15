@@ -135,11 +135,11 @@ class AgentInterface:
                 continue
             
             if self.mode_ == AgentMode.DETERMINISTIC_POLICY:
-                action = self.infer_action(deterministic=True)
+                action = self.infer_action(deterministic=False)
                 if not action:
                     continue
                 _, _ = self.action_interface.perform(action, self.state_interface)
-                self.update()
+                # self.update()
                 continue
             
             if self.mode_ == AgentMode.SELF_LEARNING:

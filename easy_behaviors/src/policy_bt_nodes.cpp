@@ -40,12 +40,12 @@ namespace easy_behaviors
             // Case type == box, accept any class with "box" in its name
             if (target_type == "box" && bbox.class_id.find("box") != std::string::npos)
             {
-                if (bbox.x < 240 || bbox.x > 460) continue;
+                if (bbox.x < 180 || bbox.x > 460) continue;
                 int dx = static_cast<int>(bbox.x) - 320;
                 int dy = static_cast<int>(bbox.y) - 420;
                 double distance = std::sqrt(dx * dx + dy * dy);
                 if (distance < 60 || distance > 200) continue;
-                if (bbox.y > 400) continue;
+                if (bbox.y > 380) continue;
 
                 filtered_bboxes.push_back(bbox);
             }
@@ -144,7 +144,7 @@ namespace easy_behaviors
             // Publish action point based on the bounding box center
             easy_interfaces::msg::Pixel action_point;
             action_point.px = static_cast<int>(bbox.x);
-            action_point.py = static_cast<int>(bbox.y);
+            action_point.py = std::max(210, static_cast<int>(bbox.y));
             action_point_publisher_->publish(action_point);
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             action_point_publisher_->publish(action_point); // Publish again to ensure the message is received

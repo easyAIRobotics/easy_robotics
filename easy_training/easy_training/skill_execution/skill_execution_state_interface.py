@@ -49,7 +49,7 @@ class SkillExecutionStateInterface(StateInterface):
         super().__init__(node)
         
         self.mutex = Lock()
-        self.state = {"done": 0.0}
+        self.state = {"done": 0.0, "skill_vector": np.zeros(3, dtype=np.float32)}
         self.depth_transform_mtx = None
         
         # Points publisher (in debug mode)
@@ -355,9 +355,22 @@ class SkillExecutionStateInterface(StateInterface):
         pc_msg = pc2.create_cloud(header, fields, points)
         self.point_image_pub.publish(pc_msg)
     
+    def set_skill_vector(self, skill_vector):
+        self.state["skill_vector"] = skill_vector
+        
+        # Find closet skill in vocab
+        min_dist = float('inf')
+        closest_skill = None
+        for skill_name, skill_vec in SKILL_VOCAB.items():
+            dist = np.linalg.norm(skill_vector - skill_vec)
+            if dist < min_dist:
+                min_dist = dist
+                closest_skill = skill_name
+        self.action = closest_skill
     
     def set_action(self, action):
         self.action = action
+        self.state["skill_vector"] = SKILL_VOCAB.get(action, np.zeros(3, dtype=np.float32))
         self.state["done"] = 0.0
         
     # Get current states and observations
@@ -387,7 +400,7 @@ class SkillExecutionStateInterface(StateInterface):
         return self.state["original_target_image"]
     
     def get_skill(self):
-        return SKILL_VOCAB[self.action]
+        return self.state["skill_vector"]
     
     def get_robot_state(self):
         # joint_positions_cos = np.cos(self.state["joint_positions"])

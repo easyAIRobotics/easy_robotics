@@ -1,3 +1,5 @@
+from std_msgs.msg import String
+
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
@@ -6,12 +8,21 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from easy_interfaces.srv import SetString
 
 from easy_training.skill_execution.skill_execution_agent_interface import SkillExecutionAgentInterface
+from easy_training.task_planning.task_planning_agent_interface import TaskPlanningAgentInterface
 
 import threading
 
 AGENT_REGISTRY = {
     "SkillExecution": SkillExecutionAgentInterface,
-    # "AnotherAgent": AnotherAgentInterface,
+    "TaskPlanning": TaskPlanningAgentInterface,
+}
+
+MODE_MAP = {
+    "training/manual": "expert",
+    "training/auto": "policy",
+    "training/exec": "policy",
+    "training/idle": "nothing",
+    "training/stop": "nothing",
 }
 
 class DemoRLTrainer(Node):
@@ -43,6 +54,12 @@ class DemoRLTrainer(Node):
             callback_group=self.set_mode_callback_group
         )
         
+        self.mode_publisher = self.create_publisher(
+            String,
+            f"{self.agent_name}/mode",
+            1,
+        )
+        
         self.create_service(
             srv_type=SetString,
             srv_name=f"{self.agent_name}/command",
@@ -56,6 +73,7 @@ class DemoRLTrainer(Node):
     def set_agent_mode_callback(self, request, response):
         self.get_logger().info(f"Received request to set agent mode to: {request.data}")
         self.agent.set_mode(request.data)
+        self.mode_publisher.publish(String(data=MODE_MAP[request.data]))
         response.success = True
         response.message = f"Agent {self.agent_name} mode set to {request.data}"
         return response
