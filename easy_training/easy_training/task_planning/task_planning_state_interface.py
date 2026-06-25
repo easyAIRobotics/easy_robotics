@@ -23,6 +23,12 @@ class TaskPlanningStateInterface(StateInterface):
         self.img_width = 640
         self.img_height = 480
         
+        self.heatmap_publisher = self._node.create_publisher(
+            Image,
+            "heatmap/reference",
+            1
+        )
+        
         self.bboxes_subscriber = self._node.create_subscription(
             BoundingBoxes,
             "/easy_object_detection/bounding_boxes",
@@ -62,7 +68,7 @@ class TaskPlanningStateInterface(StateInterface):
         self.done = False
         
     def check_sanity(self):
-        return self.state["heatmap"] is not None and self.state["rgb_image"] is not None
+        return self.state["rgb_image"] is not None
         
     def _bboxes_callback(self, msg: BoundingBoxes):
         return
@@ -87,6 +93,18 @@ class TaskPlanningStateInterface(StateInterface):
         h = int(msg.h * 224 / self.img_height)
         heatmap[y-h//2:y+h//2, x-w//2:x+w//2] = 1.0
         self.state["heatmap"] = heatmap
+        # Publish the heatmap for visualization
+        heatmap_msg = Image()
+        
+        # Convert heatmap to a format suitable for publishing (e.g., as a grayscale image)
+        heatmap_normalized = (heatmap * 255).astype(np.uint8)
+        heatmap_msg.data = heatmap_normalized.tobytes()
+        heatmap_msg.height, heatmap_msg.width = heatmap_normalized.shape
+        heatmap_msg.encoding = "mono8"
+        
+        heatmap_msg.header.stamp = self._node.get_clock().now().to_msg()
+        heatmap_msg.header.frame_id = "heatmap_frame"
+        self.heatmap_publisher.publish(heatmap_msg)
                 
     def set_action(self, action):
         self.action = action

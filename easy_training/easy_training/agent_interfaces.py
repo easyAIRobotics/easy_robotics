@@ -150,14 +150,14 @@ class AgentInterface:
                 if transition:
                     transition["reward"] = reward  # Use the reward from performing the policy action
                     self.add_rl_transition(transition)
-                self.update()
+                # self.update()
                 
             if self.mode_ == AgentMode.BEHAVIOR_CLONING:
                 reward, transition = self.action_interface.perform([], self.state_interface)
                 if transition:
                     transition["reward"] = reward  # Use the reward from performing the user action
                     self.add_bc_transition(transition)
-                self.update()
+                # self.update()
                 
             if self.mode_ == AgentMode.PERFORMING:
                 action = self.infer_action(deterministic=True)
@@ -197,8 +197,10 @@ class AgentInterface:
             stamped_buffer_folder = self.storage_path + f"/buffer_latest/data_{int(time.time())}"
             if not os.path.exists(stamped_buffer_folder):
                 os.makedirs(stamped_buffer_folder)
-            self.rl_replay_buffer.save_to_disk(stamped_buffer_folder + "/rl_replay_buffer.npz")
-            self.bc_replay_buffer.save_to_disk(stamped_buffer_folder + "/bc_replay_buffer.npz")
+            if self.rl_replay_buffer is not None:
+                self.rl_replay_buffer.save_to_disk(stamped_buffer_folder + "/rl_replay_buffer.npz")
+            if self.bc_replay_buffer is not None:
+                self.bc_replay_buffer.save_to_disk(stamped_buffer_folder + "/bc_replay_buffer.npz")
             
         elif command == "training/save_model":
             if self.sac_agent is not None:

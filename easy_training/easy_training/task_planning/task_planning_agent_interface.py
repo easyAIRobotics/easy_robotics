@@ -130,11 +130,11 @@ class TaskPlanningAgentInterface(AgentInterface):
                     self.load_random_buffers()
                     self.last_load_stamp = now
                 
-                bc_batch = self.bc_replay_buffer.sample(512, recent=False)
+                bc_batch = self.bc_replay_buffer.sample(64, recent=False)
                 past_bc_batch = None
                 if self.past_bc_replay_buffer is not None:
-                    past_bc_batch = self.past_bc_replay_buffer.sample(512, recent=False)
-                val_batch = self.validate_buffer.sample(128)
+                    past_bc_batch = self.past_bc_replay_buffer.sample(64, recent=False)
+                val_batch = self.validate_buffer.sample(16)
 
             losses = self.sac_agent.update(bc_batch, past_bc_batch, val_batch)
             self.loss_visualizer.update(losses)
@@ -164,6 +164,7 @@ class TaskPlanningAgentInterface(AgentInterface):
         return
             
     def add_bc_transition(self, transition):
+        print(f"Adding BC transition with skill {transition['skill']} and robot state {transition['robot_state']}")
         with self._buffer_lock:
             self.bc_replay_buffer.add(
                 transition["rgb_image"],

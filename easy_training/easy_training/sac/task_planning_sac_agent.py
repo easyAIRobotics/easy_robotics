@@ -9,6 +9,83 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
+
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=3,
+                padding=1,
+                bias=False
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(
+                out_channels,
+                out_channels,
+                kernel_size=3,
+                padding=1,
+                bias=False
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class UpBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+
+        self.conv = ConvBlock(
+            in_channels,
+            out_channels
+        )
+
+    def forward(self, x):
+        x = F.interpolate(
+            x,
+            scale_factor=2,
+            mode="bilinear",
+            align_corners=False
+        )
+
+        x = self.conv(x)
+
+        return x
+
+
+class HeatmapDecoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.up1 = UpBlock(384, 192)  # 14 -> 28
+        self.up2 = UpBlock(192, 96)   # 28 -> 56
+        self.up3 = UpBlock(96, 48)    # 56 -> 112
+        self.up4 = UpBlock(48, 24)    # 112 -> 224
+
+        self.head = nn.Conv2d(
+            24,
+            1,
+            kernel_size=1
+        )
+
+    def forward(self, x):
+        x = self.up1(x)
+        x = self.up2(x)
+        x = self.up3(x)
+        x = self.up4(x)
+
+        heatmap = self.head(x)
+
+        return heatmap
     
 class TaskPlanningPolicyNetwork(nn.Module):
     def __init__(self):
@@ -26,15 +103,7 @@ class TaskPlanningPolicyNetwork(nn.Module):
         self.skill_proj = nn.Linear(3, 384)
 
         # Heatmap decoder
-        self.heatmap_decoder = nn.Sequential(
-            nn.Conv2d(384, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
-
-            nn.Conv2d(128, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-
-            nn.Conv2d(64, 1, kernel_size=1)
-        )
+        self.heatmap_decoder = HeatmapDecoder()
 
     def forward(
         self,
@@ -74,19 +143,19 @@ class TaskPlanningPolicyNetwork(nn.Module):
             robot_state
         )                           # (B, 384)
         
-        skill_feature = self.skill_proj(
-            skill_vector
-        )                           # (B, 384)
+        # skill_feature = self.skill_proj(
+        #     skill_vector
+        # )                           # (B, 384)
 
         patch_tokens = (
             patch_tokens
             + state_feature.unsqueeze(1)
-            + skill_feature.unsqueeze(1)
+            # + skill_feature.unsqueeze(1)
+
         )                           # (B,196,384)
 
         B = patch_tokens.shape[0]
 
-        # 196 = 14 x 14
         x = patch_tokens.reshape(
             B,
             14,
@@ -95,19 +164,13 @@ class TaskPlanningPolicyNetwork(nn.Module):
         )
 
         x = x.permute(
-            0, 3, 1, 2
-        )                           # (B,384,14,14)
+            0,
+            3,
+            1,
+            2
+        )  # (B,384,14,14)
 
-        heatmap = self.heatmap_decoder(
-            x
-        )                           # (B,1,14,14)
-
-        heatmap = F.interpolate(
-            heatmap,
-            size=(224, 224),
-            mode="bilinear",
-            align_corners=False
-        )
+        heatmap = self.heatmap_decoder(x)
 
         return skill_vector, heatmap
 
@@ -123,13 +186,16 @@ class TaskPlanningSACAgent:
 
 
     def infer_action(self, state: dict, deterministic=True):
+        print(f"------------- Robot state: {state['robot_state']}", flush=True)
         self.policy.eval()
         with torch.no_grad():
             rgb_image = torch.from_numpy(state["rgb_image"]).unsqueeze(0).to(self.device)
             robot_state = torch.tensor(state["robot_state"]).unsqueeze(0).to(self.device)
             cls_token, patch_tokens = self.vision_transformer.extract_features(rgb_image)
             skill_vector, heatmap = self.policy.forward(cls_token, patch_tokens, robot_state)
-
+            # normalize heatmap to [0,1] using sigmoid
+            heatmap = torch.sigmoid(heatmap)
+        print(f"------------- Predicted skill vector: {skill_vector.cpu().numpy()}", flush=True)
         return skill_vector.cpu().numpy(), heatmap.cpu().numpy()
     
     
@@ -160,17 +226,21 @@ class TaskPlanningSACAgent:
                 reward = torch.cat((reward, bc_reward), dim=0)
                 done = torch.cat((done, bc_done), dim=0)
         
+        self.policy.train()
+        print(f"Image shape: {rgb_image.shape}", flush=True)
         cls_token, patch_tokens = self.vision_transformer.extract_features(rgb_image)    
         
         # Policy update using behavior cloning loss
         pred_skill_vector, pred_heatmap = self.policy.forward(cls_token, patch_tokens, robot_state)
         skill_loss = F.mse_loss(pred_skill_vector, skill)
-        heatmap_loss = F.mse_loss(pred_heatmap, heatmap.unsqueeze(1))
-        total_loss = 100 * skill_loss + heatmap_loss
+        ref_heatmap = heatmap.unsqueeze(1)  # Add channel dimension
+        heatmap_loss = F.binary_cross_entropy_with_logits(pred_heatmap, ref_heatmap)
+        
+        total_loss = skill_loss + 10 * heatmap_loss
         self.policy_optimizer.zero_grad()
         total_loss.backward()
         self.policy_optimizer.step()
-        
+                
         print(f"Policy update - Total Loss: {total_loss.item():.4f}, Skill Loss: {skill_loss.item():.4f}, Heatmap Loss: {heatmap_loss.item():.4f}", flush=True)
         
         return {

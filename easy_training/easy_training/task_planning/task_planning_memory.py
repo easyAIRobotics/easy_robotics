@@ -103,7 +103,6 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
         data = np.load(file_path)
         self.rgb_image_buffer[:data['rgb_image_buffer'].shape[0]] = data['rgb_image_buffer']
         self.heatmap_buffer[:data['heatmap_buffer'].shape[0]] = data['heatmap_buffer']
-        self.class_list_buffer[:data['class_list_buffer'].shape[0]] = data['class_list_buffer']
         self.robot_state_buffer[:data['robot_state_buffer'].shape[0]] = data['robot_state_buffer']
         self.skill[:data['skill'].shape[0]] = data['skill']
         self.reward_buffer[:data['reward_buffer'].shape[0]] = data['reward_buffer']

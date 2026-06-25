@@ -155,6 +155,7 @@ class SkillExecutionAgentInterface(AgentInterface):
     def _skill_vector_callback(self, msg):
         skill_vector = np.array(msg.data, dtype=np.float32)
         self.state_interface.set_skill_vector(skill_vector)
+        self.action_interface.set_action(self.state_interface.action)
     
 
     def infer_action(self, deterministic=True):
