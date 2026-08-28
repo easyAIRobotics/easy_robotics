@@ -106,7 +106,7 @@ class PickingExpert:
                 
                 goal_req = ExecuteGoal.Request()
                 goal_req.speed_factor = 0.5
-                goal_req.planning_time = 5.0
+                goal_req.planning_time = 1.0
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
                 goal_req.goal.pose.position.x = float(pre_picking_point[0])
@@ -127,7 +127,7 @@ class PickingExpert:
                 
                 self.suction_cmd_pub.publish(Bool(data=True))
                 
-                goal_req.planning_time = 2.0
+                goal_req.planning_time = 1.0
                 goal_req.goal.pose.position.x = float(picking_point[0])
                 goal_req.goal.pose.position.y = float(picking_point[1])
                 goal_req.goal.pose.position.z = float(picking_point[2])

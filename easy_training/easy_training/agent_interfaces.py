@@ -63,7 +63,7 @@ class StateInterface:
 class ActionInterface:
     def __init__(self, node: Node):
         self._node = node
-        self.frequency = 3.0  # Default frequency for action execution
+        self.frequency = 6.0  # Default frequency for action execution
         self.action_interface_callback_group = ReentrantCallbackGroup()
         self._mode = AgentMode.IDLE
         self.action = None
@@ -157,7 +157,7 @@ class AgentInterface:
                 if transition:
                     transition["reward"] = reward  # Use the reward from performing the user action
                     self.add_bc_transition(transition)
-                # self.update()
+                self.update()
                 
             if self.mode_ == AgentMode.PERFORMING:
                 action = self.infer_action(deterministic=True)

@@ -380,11 +380,14 @@ class SkillExecutionStateInterface(StateInterface):
     
     def get_reward(self) -> float:
         if self.action is None:
+            print("[SkillExecutionStateInterface] No action set, returning reward 0.0", flush=True)
             return 0.0
         
         if self.action == "pick":
+            print("[SkillExecutionStateInterface] Calculating picking reward", flush=True)
             return self._get_picking_reward()
         elif self.action == "place":
+            print("[SkillExecutionStateInterface] Calculating placing reward", flush=True)
             return self._get_placing_reward()
         
         return 0.0  # Default reward for other actions
@@ -472,4 +475,18 @@ class SkillExecutionStateInterface(StateInterface):
             self.result_pub.publish(Bool(data=False))
                         
         return reward
+    
+    def check_above_target(self) -> bool:
+        """Check if the end-effector is above the target object (within a certain threshold)."""
+        if self.state["original_target_image"] is None or self.state["eef_pose"] is None:
+            return False
+        
+        object_center = np.mean(self.state["original_target_image"], axis=(0, 1))
+        ee_position = np.array(self.state["eef_pose"][:3])
+        
+        # Check if the end-effector is within a certain distance above the object
+        distance_xy = np.linalg.norm(ee_position[:2] - object_center[:2])
+        height_diff = ee_position[2] - object_center[2]
+        return False
+        # return distance_xy < 0.07 and height_diff > 0.05
                         

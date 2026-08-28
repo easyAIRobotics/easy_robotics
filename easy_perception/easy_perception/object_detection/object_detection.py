@@ -29,7 +29,7 @@ class ObjectDetectionNode(Node):
 
         # Signaling server
         self.server = WebRTCSignalingServer(
-            ["color", "depth"]
+            ["color", "attention"]
         )
         
         # Publisher
@@ -40,8 +40,8 @@ class ObjectDetectionNode(Node):
             Image, "camera/color", self.rgb_callback, 1
         )
 
-        self.depth_sub = self.create_subscription(
-            Image, "camera/depth", self.depth_callback, 1
+        self.attention_sub = self.create_subscription(
+            Image, "/heatmap", self.attention_callback, 1
         )
 
         self.get_logger().info(f"Start detection")
@@ -69,13 +69,14 @@ class ObjectDetectionNode(Node):
         except Exception as e:
             self.get_logger().error(f"Rgb error: {e}")
 
-    def depth_callback(self, msg: Image):
+    def attention_callback(self, msg: Image):
         try:
-            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-            frame = self.depth_to_bgr(frame)
-            self.server.update_frame("depth", frame)
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            # Scale frame to 640x480 for WebRTC
+            frame = cv2.resize(frame, (640, 480))
+            self.server.update_frame("attention", frame)
         except Exception as e:
-            self.get_logger().error(f"Depth error: {e}")
+            self.get_logger().error(f"Attention error: {e}")
 
     def depth_to_bgr(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -83,7 +84,7 @@ class ObjectDetectionNode(Node):
         """
         if frame.dtype == np.float32:
             # Normalize depth to 0-255 for visualization
-            frame_norm = np.clip(frame, 0, 5.0)  # max 5 meters, adjust as needed
+            frame_norm = np.clip(frame, 0, 1.0)  # max 1.0, adjust as needed
             frame_norm = (frame_norm / frame_norm.max() * 255).astype(np.uint8)
         else:
             frame_norm = frame.astype(np.uint8)

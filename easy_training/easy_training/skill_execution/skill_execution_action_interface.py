@@ -27,10 +27,10 @@ EEF_MOVEMENT_PENALTY_SCALE = 1.0
 MOVEGROUP_NAME = 'suction_tip'
 BASE_FRAME = 'base_link'
 
-MAX_JOINT_DELTA = 0.1  # Maximum allowed joint position change
+MAX_JOINT_DELTA = 0.075  # Maximum allowed joint position change
 
-JOINT_LOWER_LIMITS = np.array([-2.18, -1.48, -0.58, -2.58, -2.51, -2.58])
-JOINT_UPPER_LIMITS = np.array([2.18, 0.5, 2.59, 2.58, 2.51, 2.58])
+JOINT_LOWER_LIMITS = np.array([-2.18, -1.48, -0.58, -2.45, -2.45, -2.58])
+JOINT_UPPER_LIMITS = np.array([2.18, 0.5, 2.59, 2.45, 2.45, 2.58])
 
 ACTION_MODE = "joint_positions" # or "eef_pose"
 # ACTION_MODE = "eef_pose"
@@ -162,7 +162,7 @@ class SkillExecutionActionInterface(ActionInterface):
                 self._broadcast_target_tf(act["eef_pose"])
             else:  # ACTION_MODE == "joint_positions"
                 act = {
-                    "joint_positions": act_vec[:6],
+                    "joint_positions": [a + b for a, b in zip(act_vec[:6], current_state["joint_positions"][:6])],
                     "suction_command": act_vec[6]
                 }
                 joint_positions = act["joint_positions"]
@@ -177,6 +177,8 @@ class SkillExecutionActionInterface(ActionInterface):
                 reward -= IK_FAILURE_PENALTY
             
             if bounded_joint_positions:
+                if state_interface.check_above_target():
+                    bounded_joint_positions[1] -= 0.01
                 if not self.check_collision(bounded_joint_positions):
                     self.send_joint_command(bounded_joint_positions)
                 else:
@@ -307,7 +309,7 @@ class SkillExecutionActionInterface(ActionInterface):
         
         
     def send_gripper_command(self, suction_command: float):
-        suction_on = suction_command > 0.5
+        suction_on = suction_command > 0.2
         suction_command_msg = Bool()
         suction_command_msg.data = suction_on
         self.cmd_suction_pub.publish(suction_command_msg)

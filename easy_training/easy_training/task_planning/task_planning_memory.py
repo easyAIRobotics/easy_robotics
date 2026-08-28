@@ -11,6 +11,7 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
     ):
         super().__init__(capacity)
         self.rgb_image_buffer = np.zeros((capacity, 224, 224, 3), dtype=np.uint8)
+        self.rgb_image_hand_buffer = np.zeros((capacity, 64, 64, 3), dtype=np.uint8)
         self.heatmap_buffer = np.zeros((capacity, 224, 224), dtype=np.float32)
         self.robot_state_buffer = np.zeros((capacity, 1), dtype=np.float32)
         self.skill = np.zeros((capacity, 3), dtype=np.float32)
@@ -21,6 +22,7 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
     def add(
         self,
         rgb_image,
+        rgb_image_hand,
         heatmap,
         robot_state,
         skill,
@@ -28,6 +30,7 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
         done
     ):
         self.rgb_image_buffer[self.ptr] = rgb_image
+        self.rgb_image_hand_buffer[self.ptr] = rgb_image_hand
         self.heatmap_buffer[self.ptr] = heatmap
         self.robot_state_buffer[self.ptr] = robot_state
         self.skill[self.ptr] = skill
@@ -53,6 +56,7 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
             idxs = np.random.choice(self.buffer_size, size, replace=False)
         
         rgb_image = torch.from_numpy(self.rgb_image_buffer[idxs]).to(self.device)
+        rgb_image_hand = torch.from_numpy(self.rgb_image_hand_buffer[idxs]).to(self.device)
         heatmap = torch.from_numpy(self.heatmap_buffer[idxs]).to(self.device)
         robot_state = torch.from_numpy(self.robot_state_buffer[idxs]).to(self.device)
         skill = torch.from_numpy(self.skill[idxs]).to(self.device)
@@ -60,6 +64,7 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
         done = torch.from_numpy(self.done_buffer[idxs]).to(self.device)
         return (
             rgb_image,
+            rgb_image_hand,
             heatmap,
             robot_state,
             skill,
@@ -73,6 +78,7 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
             return None
         
         rgb_image = torch.from_numpy(self.rgb_image_buffer[:self.buffer_size]).to(self.device)
+        rgb_image_hand = torch.from_numpy(self.rgb_image_hand_buffer[:self.buffer_size]).to(self.device)
         heatmap = torch.from_numpy(self.heatmap_buffer[:self.buffer_size]).to(self.device)
         robot_state = torch.from_numpy(self.robot_state_buffer[:self.buffer_size]).to(self.device)
         skill = torch.from_numpy(self.skill[:self.buffer_size]).to(self.device)
@@ -80,6 +86,7 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
         done = torch.from_numpy(self.done_buffer[:self.buffer_size]).to(self.device)
         return (
             rgb_image,
+            rgb_image_hand,
             heatmap,
             robot_state,
             skill,
@@ -92,6 +99,7 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
         np.savez_compressed(
             file_path,
             rgb_image_buffer=self.rgb_image_buffer[:self.buffer_size],
+            rgb_image_hand_buffer=self.rgb_image_hand_buffer[:self.buffer_size],
             heatmap_buffer=self.heatmap_buffer[:self.buffer_size],
             robot_state_buffer=self.robot_state_buffer[:self.buffer_size],
             skill=self.skill[:self.buffer_size],
@@ -102,11 +110,12 @@ class TaskPlanningReplayBuffer(ReplayBuffer):
     def load_from_disk(self, file_path: str):
         data = np.load(file_path)
         self.rgb_image_buffer[:data['rgb_image_buffer'].shape[0]] = data['rgb_image_buffer']
+        self.rgb_image_hand_buffer[:data['rgb_image_hand_buffer'].shape[0]] = data['rgb_image_hand_buffer']
         self.heatmap_buffer[:data['heatmap_buffer'].shape[0]] = data['heatmap_buffer']
         self.robot_state_buffer[:data['robot_state_buffer'].shape[0]] = data['robot_state_buffer']
         self.skill[:data['skill'].shape[0]] = data['skill']
         self.reward_buffer[:data['reward_buffer'].shape[0]] = data['reward_buffer']
         self.done_buffer[:data['done_buffer'].shape[0]] = data['done_buffer']
-        
+
         self.buffer_size = data['heatmap_buffer'].shape[0]
         self.ptr = self.buffer_size % self.capacity

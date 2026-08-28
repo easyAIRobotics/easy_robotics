@@ -33,6 +33,7 @@ public:
         factory_->registerNodeType<easy_behaviors::TriggerGripperNode>("TriggerGripper");
         factory_->registerNodeType<easy_behaviors::SetModeNode>("SetMode");
         factory_->registerNodeType<easy_behaviors::CounterNode>("Counter");
+        factory_->registerNodeType<easy_behaviors::TimeCounterNode>("TimeCounter");
         // Load the Behavior Tree from an XML file
         std::string xml_path;
         this->declare_parameter<std::string>("tree_path", "");

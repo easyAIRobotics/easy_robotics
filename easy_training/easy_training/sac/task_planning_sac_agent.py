@@ -10,6 +10,24 @@ import torch.nn.functional as F
 
 import numpy as np
 
+class HandImageEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 4, kernel_size=3, stride=2, padding=1)  # 64x64 -> 32x32
+        self.conv2 = nn.Conv2d(4, 8, kernel_size=3, stride=2, padding=1)    # 32x32 -> 16x16
+        self.conv3 = nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1)   # 16x16 -> 8x8
+        self.conv4 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  # 8x8 -> 4x4
+        self.fc = nn.Linear(32 * 4 * 4, 64)  # Assuming input image size is 64x64
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
+        x = torch.flatten(x, start_dim=1)
+        x = self.fc(x)
+        return x
+
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -62,7 +80,7 @@ class UpBlock(nn.Module):
         return x
 
 
-class HeatmapDecoder(nn.Module):
+class AttentionMapDecoder(nn.Module):
     def __init__(self):
         super().__init__()
 
@@ -93,66 +111,77 @@ class TaskPlanningPolicyNetwork(nn.Module):
 
         # Skill decoder
         self.skill_decoder = nn.Sequential(
-            nn.Linear(384 + 1, 64),
+            nn.Linear(768, 256),
             nn.ReLU(),
-            nn.Linear(64, 3)
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 3)  # Output skill vector of size 3
         )
+        
+        # Hand image encoder
+        self.hand_image_encoder = HandImageEncoder()
 
         # Project robot state to token dimension
         self.state_proj = nn.Linear(1, 384)
-        self.skill_proj = nn.Linear(3, 384)
+        self.state_norm = nn.LayerNorm(384)
+        
+        self.cls_norm = nn.LayerNorm(384)
+        self.patch_norm = nn.LayerNorm(384)
+        
+        self.patch_fusion = nn.Sequential(
+            nn.Linear(384 * 2 + 64, 384),
+            nn.ReLU()
+        )
 
-        # Heatmap decoder
-        self.heatmap_decoder = HeatmapDecoder()
+        # heatmap decoder
+        self.heatmap_decoder = AttentionMapDecoder()
 
     def forward(
         self,
         cls_tokens,
         patch_tokens,
+        hand_image,
         robot_state
     ):
         """
         cls_tokens:   (B, 384)
         patch_tokens: (B, 196, 384)
+        hand_image:    (B, 3, 64, 64)
         robot_state:  (B, 1)
 
         Returns:
             skill_vector: (B, 3)
             heatmap:      (B, 1, 224, 224)
         """
+        
+        hand_features = self.hand_image_encoder(hand_image)  # (B, 64)
 
         # ----------------------------
         # Skill branch
         # ----------------------------
-
+        cls_feature = self.cls_norm(cls_tokens)
+        state_feature = self.state_proj(robot_state)
+        state_feature = self.state_norm(state_feature)
+        
         skill_input = torch.cat(
-            [cls_tokens, robot_state],
-            dim=1
-        )
+            (cls_feature, state_feature),
+            dim=-1
+        )  # (B, 384 + 384 = 768)
 
         skill_vector = self.skill_decoder(
             skill_input
         )
 
         # ----------------------------
-        # Heatmap branch
+        # heatmap branch
         # ----------------------------
-
-        # Inject robot state into every patch token
-        state_feature = self.state_proj(
-            robot_state
-        )                           # (B, 384)
-        
-        # skill_feature = self.skill_proj(
-        #     skill_vector
-        # )                           # (B, 384)
-
-        patch_tokens = (
-            patch_tokens
-            + state_feature.unsqueeze(1)
-            # + skill_feature.unsqueeze(1)
-
-        )                           # (B,196,384)
+        patch_tokens = self.patch_norm(patch_tokens)
+        patch_input = torch.cat([
+            patch_tokens,
+            state_feature.unsqueeze(1).expand(-1, 196, -1),
+            hand_features.unsqueeze(1).expand(-1, 196, -1)
+        ], dim=-1)
+        patch_tokens = self.patch_fusion(patch_input)  # (B, 196, 384)
 
         B = patch_tokens.shape[0]
 
@@ -190,9 +219,12 @@ class TaskPlanningSACAgent:
         self.policy.eval()
         with torch.no_grad():
             rgb_image = torch.from_numpy(state["rgb_image"]).unsqueeze(0).to(self.device)
+            hand_image = torch.from_numpy(state["rgb_image_hand"]).unsqueeze(0).to(self.device)
+            hand_image = hand_image / 255.0
+            hand_image = hand_image.permute(0, 3, 1, 2)  # (B, 3, 64, 64)
             robot_state = torch.tensor(state["robot_state"]).unsqueeze(0).to(self.device)
             cls_token, patch_tokens = self.vision_transformer.extract_features(rgb_image)
-            skill_vector, heatmap = self.policy.forward(cls_token, patch_tokens, robot_state)
+            skill_vector, heatmap = self.policy.forward(cls_token, patch_tokens, hand_image, robot_state)
             # normalize heatmap to [0,1] using sigmoid
             heatmap = torch.sigmoid(heatmap)
         print(f"------------- Predicted skill vector: {skill_vector.cpu().numpy()}", flush=True)
@@ -205,10 +237,11 @@ class TaskPlanningSACAgent:
             return
         
         if bc_samples is not None:
-            rgb_image, heatmap, robot_state, skill, reward, done = bc_samples
+            rgb_image, hand_image, heatmap, robot_state, skill, reward, done = bc_samples
             if past_bc_samples is not None:
-                past_rgb_image, past_heatmap, past_robot_state, past_skill, past_reward, past_done = past_bc_samples
+                past_rgb_image, past_hand_image, past_heatmap, past_robot_state, past_skill, past_reward, past_done = past_bc_samples
                 rgb_image = torch.cat((rgb_image, past_rgb_image), dim=0)
+                hand_image = torch.cat((hand_image, past_hand_image), dim=0)
                 heatmap = torch.cat((heatmap, past_heatmap), dim=0)
                 robot_state = torch.cat((robot_state, past_robot_state), dim=0)
                 skill = torch.cat((skill, past_skill), dim=0)
@@ -216,10 +249,11 @@ class TaskPlanningSACAgent:
                 done = torch.cat((done, past_done), dim=0)
 
         elif past_bc_samples is not None:
-            rgb_image, heatmap, robot_state, skill, reward, done = past_bc_samples
+            rgb_image, hand_image, heatmap, robot_state, skill, reward, done = past_bc_samples
             if bc_samples is not None:
-                bc_rgb_image, bc_heatmap, bc_robot_state, bc_skill, bc_reward, bc_done = bc_samples
+                bc_rgb_image, bc_hand_image, bc_heatmap, bc_robot_state, bc_skill, bc_reward, bc_done = bc_samples
                 rgb_image = torch.cat((rgb_image, bc_rgb_image), dim=0)
+                hand_image = torch.cat((hand_image, bc_hand_image), dim=0)
                 heatmap = torch.cat((heatmap, bc_heatmap), dim=0)
                 robot_state = torch.cat((robot_state, bc_robot_state), dim=0)
                 skill = torch.cat((skill, bc_skill), dim=0)
@@ -228,10 +262,13 @@ class TaskPlanningSACAgent:
         
         self.policy.train()
         print(f"Image shape: {rgb_image.shape}", flush=True)
-        cls_token, patch_tokens = self.vision_transformer.extract_features(rgb_image)    
+        cls_token, patch_tokens = self.vision_transformer.extract_features(rgb_image)
+        # Normalize hand_image to [0,1]
+        hand_image = hand_image / 255.0
+        hand_image = hand_image.permute(0, 3, 1, 2)  # (B, 3, 64, 64)
         
         # Policy update using behavior cloning loss
-        pred_skill_vector, pred_heatmap = self.policy.forward(cls_token, patch_tokens, robot_state)
+        pred_skill_vector, pred_heatmap = self.policy.forward(cls_token, patch_tokens, hand_image, robot_state)
         skill_loss = F.mse_loss(pred_skill_vector, skill)
         ref_heatmap = heatmap.unsqueeze(1)  # Add channel dimension
         heatmap_loss = F.binary_cross_entropy_with_logits(pred_heatmap, ref_heatmap)
@@ -241,12 +278,34 @@ class TaskPlanningSACAgent:
         total_loss.backward()
         self.policy_optimizer.step()
                 
-        print(f"Policy update - Total Loss: {total_loss.item():.4f}, Skill Loss: {skill_loss.item():.4f}, Heatmap Loss: {heatmap_loss.item():.4f}", flush=True)
+        print(f"Policy update - Total Loss: {total_loss.item():.4f}, Skill Loss: {skill_loss.item():.4f}, heatmap Loss: {heatmap_loss.item():.4f}", flush=True)
         
+        # Compute validate loss if validation samples are provided
+        if val_samples is not None:
+            val_rgb_image, val_hand_image, val_heatmap, val_robot_state, val_skill, val_reward, val_done = val_samples
+            self.policy.eval()
+            with torch.no_grad():
+                val_cls_token, val_patch_tokens = self.vision_transformer.extract_features(val_rgb_image)
+                val_hand_image = val_hand_image / 255.0
+                val_hand_image = val_hand_image.permute(0, 3, 1, 2)  # (B, 3, 64, 64)
+                val_pred_skill_vector, val_pred_heatmap = self.policy.forward(val_cls_token, val_patch_tokens, val_hand_image, val_robot_state)
+                val_skill_loss = F.mse_loss(val_pred_skill_vector, val_skill)
+                val_ref_heatmap = val_heatmap.unsqueeze(1)  # Add channel dimension
+                val_heatmap_loss = F.binary_cross_entropy_with_logits(val_pred_heatmap, val_ref_heatmap)
+                val_total_loss = val_skill_loss + 10 * val_heatmap_loss
+            print(f"Validation - Total Loss: {val_total_loss.item():.4f}, Skill Loss: {val_skill_loss.item():.4f}, heatmap Loss: {val_heatmap_loss.item():.4f}", flush=True)
+        else:
+            val_total_loss = None
+            val_skill_loss = None
+            val_heatmap_loss = None
+            
         return {
             "total_loss": total_loss.item(),
             "skill_loss": skill_loss.item(),
-            "heatmap_loss": heatmap_loss.item()
+            "heatmap_loss": heatmap_loss.item(),
+            "val_total_loss": val_total_loss.item() if val_total_loss is not None else 0.0,
+            "val_skill_loss": val_skill_loss.item() if val_skill_loss is not None else 0.0,
+            "val_heatmap_loss": val_heatmap_loss.item() if val_heatmap_loss is not None else 0.0
         }
         
     

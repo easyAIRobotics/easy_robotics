@@ -14,10 +14,10 @@ from easy_training.utils import *
 # MAX_STEP_DELTA = 0.02
 # MAX_STEP_ANGLE = np.pi / 24
 
-MAX_RANGE = np.pi
+MAX_RANGE = np.pi / 20
 # MAX_RANGE = 1.5
 
-torch.autograd.set_detect_anomaly(True)
+# torch.autograd.set_detect_anomaly(True)
 
 def check(name, x):
     if not torch.isfinite(x).all():
@@ -30,7 +30,7 @@ def check(name, x):
 class SceneImageEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 3, kernel_size=3, stride=2, padding=1) # 30x40 → 15x20z
+        self.conv1 = nn.Conv2d(3, 3, kernel_size=3, stride=2, padding=1) # 30x40 → 15x20
         self.conv2 = nn.Conv2d(3, 4, kernel_size=3, stride=2, padding=1) # 15x20 → 8x10
         self.conv3 = nn.Conv2d(4, 8, kernel_size=3, stride=2, padding=1) # 8x10 → 4x5
         self.conv4 = nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1) # 4x5 → 2x3
@@ -74,6 +74,7 @@ class SkillExecutionPolicyNetwork(nn.Module):
         self.target_encoder = TargetImageEncoder()
         self.original_target_encoder = TargetImageEncoder()
         state_dim = 64 + 32 + 32 + 3 + 15 + 1
+        self.gripper_act_id = action_dim - 1 
 
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
@@ -81,12 +82,11 @@ class SkillExecutionPolicyNetwork(nn.Module):
         self.fc4 = nn.Linear(hidden_dim, hidden_dim // 2)
         self.fc5 = nn.Linear(hidden_dim // 2, hidden_dim // 4)
 
-        # 6 continuous
         self.mean = nn.Linear(hidden_dim // 4, action_dim)
         self.log_std = nn.Linear(hidden_dim // 4, action_dim)
 
         self.LOG_STD_MIN = -10.0
-        self.LOG_STD_MAX = -5.0
+        self.LOG_STD_MAX = 0.0
 
     def forward(self, img, target_img, original_target_img, skill, robot):
         scene_z = self.scene_encoder(img)
@@ -101,8 +101,15 @@ class SkillExecutionPolicyNetwork(nn.Module):
         h5 = F.relu(self.fc5(h4))
 
         mean = self.mean(h5)
-        log_std = torch.clamp(self.log_std(h5), self.LOG_STD_MIN, self.LOG_STD_MAX)
+        log_std = self.log_std(h5)
+        
+        min_vals = torch.full_like(log_std, self.LOG_STD_MIN)
+        max_vals = torch.full_like(log_std, self.LOG_STD_MAX)
 
+        min_vals[..., -1] = -10.0
+        max_vals[..., -1] = -2.0
+        
+        log_std = torch.max(torch.min(log_std, max_vals), min_vals)
         return mean, log_std
 
     def sample(self, img, target_img, original_target_img, skill, robot):
@@ -181,7 +188,7 @@ class SkillExecutionCriticNetwork(nn.Module):
         return self.q(h5), self.q_(h5_)
     
     
-JOINT_WEIGHT = 50.0
+JOINT_WEIGHT = 5.0
 SUCTION_WEIGHT = 1.0
 ACTION_MODE = "joint_positions"  # "eef_pose" or "joint_positions"
 # ACTION_MODE = "eef_pose"
@@ -195,9 +202,9 @@ class SkillExecutionSACAgent(SACAgent):
     def __init__(
         self, node: Node,
         gamma=0.98,
-        tau=0.01,
-        alpha=0.0,
-        bc_weight=10.0,
+        tau=1.0,
+        alpha=0.001,
+        bc_weight=1.0,
         lr=5e-4
     ):
         super().__init__(node, "skill_execution_sac_agent")
@@ -231,6 +238,9 @@ class SkillExecutionSACAgent(SACAgent):
         # Optimizers
         self.policy_optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
         self.q_optimizer = torch.optim.Adam(self.q.parameters(), lr=lr)
+        
+        self.best_model = {}
+        self.best_val_loss = float("inf")
      
         
     def infer_action(self, state: dict, deterministic=True):
@@ -275,6 +285,7 @@ class SkillExecutionSACAgent(SACAgent):
             action[..., :6] *= self.max_range
         else:
             action[..., :9] *= self.max_range
+        action[..., self.gripper_act_id] = action[..., self.gripper_act_id] * 2.0
 
         # delta rotation scaling
         # delta_rot = action[..., 3:6] * self.delta_angle_max
@@ -438,9 +449,12 @@ class SkillExecutionSACAgent(SACAgent):
         ########################################
 
         if ACTION_MODE == "joint_positions":
+            actions[:, :6] = actions[:, :6] - robot[:, 9:15]
+            actions[:, :6] = torch.clamp(actions[:, :6], -0.9 * self.max_range, 0.9 * self.max_range)
             actions[:, :6] /= self.max_range
         else:
             actions[:, :9] /= self.max_range
+        actions[:, self.gripper_act_id] /= 2.0
 
         ########################################
         # --------- Critic Update --------------
@@ -540,9 +554,12 @@ class SkillExecutionSACAgent(SACAgent):
             bc_actions = bc_batch["actions"].clone()
 
             if ACTION_MODE == "joint_positions":
+                bc_actions[:, :6] = bc_actions[:, :6] - bc_robot[:, 9:15]
+                bc_actions[:, :6] = torch.clamp(bc_actions[:, :6], -0.9 * self.max_range, 0.9 * self.max_range)
                 bc_actions[:, :6] /= self.max_range
             else:
                 bc_actions[:, :9] /= self.max_range
+            bc_actions[:, self.gripper_act_id] /= 2.0
 
             bc_actions_pred, _ = self.policy.deterministic(
                 bc_img,
@@ -571,11 +588,11 @@ class SkillExecutionSACAgent(SACAgent):
         # --------- Total Actor Loss -----------
         ########################################
 
-        # total_policy_loss = (
-        #     sac_loss
-        #     + self.bc_weight * bc_loss
-        # )
-        total_policy_loss = self.bc_weight * bc_loss
+        total_policy_loss = (
+            sac_loss
+            + self.bc_weight * bc_loss
+        )
+        # total_policy_loss = self.bc_weight * bc_loss
         
         self.policy_optimizer.zero_grad()
         total_policy_loss.backward()
@@ -610,9 +627,12 @@ class SkillExecutionSACAgent(SACAgent):
             val_actions = val_batch["actions"].clone()
 
             if ACTION_MODE == "joint_positions":
+                val_actions[:, :6] = val_actions[:, :6] - val_batch["robot"][:, 9:15]
+                val_actions[:, :6] = torch.clamp(val_actions[:, :6], -0.9 * self.max_range, 0.9 * self.max_range)
                 val_actions[:, :6] /= self.max_range
             else:
                 val_actions[:, :9] /= self.max_range
+            val_actions[:, self.gripper_act_id] /= 2.0
 
             with torch.no_grad():
 
@@ -636,6 +656,11 @@ class SkillExecutionSACAgent(SACAgent):
                     val_actions[:, self.gripper_act_id],
                 )
                 
+                val_loss = (
+                    JOINT_WEIGHT * val_joint_loss
+                    + SUCTION_WEIGHT * val_suction_loss
+                )
+                
                 print(f"[SkillExecutionSACAgent] Predicted action vs action: {val_actions_pred[:2, :self.gripper_act_id + 1]} vs {val_actions[:2, :self.gripper_act_id + 1]}", flush=True)
 
         ########################################
@@ -648,10 +673,10 @@ class SkillExecutionSACAgent(SACAgent):
             "q2_loss": q2_loss.item(),
             "critic_loss": critic_loss.item(),
             "sac_loss": sac_loss.item(),
-            "bc_loss": bc_loss.item(),
+            "bc_loss": bc_joint_loss.item(),
             "val_loss": (
                 val_joint_loss.item()
                 if isinstance(val_joint_loss, torch.Tensor)
-                else val_joint_loss
+                else val_loss
             ),
         }

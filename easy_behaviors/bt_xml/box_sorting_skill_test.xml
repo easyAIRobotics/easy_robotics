@@ -22,6 +22,10 @@
                      increment="1"
                      count="{policy_pick_total_count}"/>
             <Sleep msec="1000"/>
+            <TimeCounter key="pick_policy"
+                         switch="start"
+                         input_time="0.0"
+                         output_time="{pick_start}"/>
             <Timeout msec="60000">
               <Policy bbox="{selected_bbox}"
                       skill="pick"
@@ -30,22 +34,26 @@
             <Counter key="policy_pick_success"
                      increment="1"
                      count="{policy_pick_success_count}"/>
+            <TimeCounter key="pick_policy"
+                         switch="stop"
+                         input_time="{pick_start}"
+                         output_time="{pick_end}"/>
           </Sequence>
           <Sequence>
             <Sleep msec="1000"/>
             <RetryUntilSuccessful num_attempts="1">
               <Sequence>
-                <Counter key="expert_pick_success"
+                <Counter key="expert_pick_total"
                          increment="1"
-                         count="{expert_pick_success_count}"/>
+                         count="{expert_pick_total_count}"/>
                 <Timeout msec="30000">
                   <Policy bbox="{selected_bbox}"
                           skill="pick"
                           mode="expert"/>
                 </Timeout>
-                <Counter key="expert_pick_total"
+                <Counter key="expert_pick_success"
                          increment="1"
-                         count="{expert_pick_total_count}"/>
+                         count="{expert_pick_success_count}"/>
               </Sequence>
             </RetryUntilSuccessful>
           </Sequence>
@@ -66,6 +74,10 @@
             <Counter key="policy_place_total"
                      increment="1"
                      count="{policy_place_total_count}"/>
+            <TimeCounter key="place_policy"
+                         switch="start"
+                         input_time="0.0"
+                         output_time="{place_start}"/>
             <Sleep msec="1000"/>
             <Timeout msec="60000">
               <Policy bbox="{selected_bbox}"
@@ -75,6 +87,10 @@
             <Counter key="policy_place_success"
                      increment="1"
                      count="{policy_place_success_count}"/>
+            <TimeCounter key="place_policy"
+                         switch="stop"
+                         input_time="{place_start}"
+                         output_time="{place_end}"/>
           </Sequence>
           <Sequence>
             <RetryUntilSuccessful num_attempts="1">
@@ -126,6 +142,12 @@
       <input_port name="mode"/>
     </Action>
     <Action ID="Reset"/>
+    <Action ID="TimeCounter">
+      <input_port name="key"/>
+      <input_port name="switch"/>
+      <input_port name="input_time"/>
+      <output_port name="output_time"/>
+    </Action>
     <Action ID="TriggerGripper">
       <input_port name="active"/>
     </Action>

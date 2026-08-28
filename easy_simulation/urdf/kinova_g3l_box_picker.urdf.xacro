@@ -85,6 +85,9 @@
     <xacro:gz_rgbd_camera
       name="camera"
       prefix="$(arg prefix)"/>
+    <xacro:gz_rgbd_camera_tiny
+      name="camera_hand"
+      prefix="$(arg prefix)"/>
   </xacro:if>
 
   <!-- RGBD camera URDF inclusion -->
@@ -92,8 +95,15 @@
     parent_link="$(arg prefix)base_link"
     name="camera"
     prefix="$(arg prefix)">
-    <origin xyz="0.2 0 1.4" rpy="0 1.4 0"/>
+    <origin xyz="0.2 0 1.4" rpy="0 1.45 0"/>
   </xacro:rgbd_camera>
+
+  <xacro:rgbd_camera_tiny
+    parent_link="$(arg prefix)upper_wrist_link"
+    name="camera_hand"
+    prefix="$(arg prefix)">
+    <origin xyz="-0.1 0 0.08" rpy="0 3.0 0"/>
+  </xacro:rgbd_camera_tiny>
 
   <!-- Suction gripper URDF inclusion -->
   <xacro:include filename="$(find easy_simulation)/urdf/suction_gripper.urdf.xacro" />

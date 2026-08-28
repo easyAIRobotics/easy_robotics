@@ -2,6 +2,7 @@
 
 #include "easy_behaviors/headers.hpp"
 #include <random>
+#include <fstream>
 
 namespace easy_behaviors
 {
@@ -151,5 +152,29 @@ namespace easy_behaviors
     private:
         rclcpp::Node::SharedPtr node_;
         std::unordered_map<std::string, int> counters_;  // Map to store counters
+    };
+
+    class TimeCounterNode : public BT::SyncActionNode
+    {
+    public:
+        TimeCounterNode(const std::string& name, const BT::NodeConfiguration& config);
+        static BT::PortsList providedPorts()
+        {
+            return {
+                BT::InputPort<std::string>("key", "The key to identify the timer"),
+                BT::InputPort<std::string>("switch", "The duration of the timer in seconds"),
+                BT::InputPort<double>("input_time", "The start time recorded for the key"),
+                BT::OutputPort<double>("output_time", "The start time recorded for the key")
+            };
+        }
+        virtual BT::NodeStatus tick() override;
+
+    private:
+        rclcpp::Node::SharedPtr node_;
+        std::unordered_map<std::string, std::vector<double>> durations;  // Store execution durations
+        std::unordered_map<std::string, double> start_times;  // Store start times
+
+        void printStatistics(const std::string& key);
+        void appendCSV(const std::string& key, double elapsed_time);
     };
 }  // namespace easy_behaviors

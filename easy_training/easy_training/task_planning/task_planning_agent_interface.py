@@ -27,7 +27,6 @@ class TaskPlanningAgentInterface(AgentInterface):
         )
         
         self.buffer_id = 0
-        self.buffer_id = 0
         
         self.set_action_service = self._node.create_service(
             srv_type=SetString,
@@ -130,10 +129,10 @@ class TaskPlanningAgentInterface(AgentInterface):
                     self.load_random_buffers()
                     self.last_load_stamp = now
                 
-                bc_batch = self.bc_replay_buffer.sample(64, recent=False)
+                bc_batch = self.bc_replay_buffer.sample(32, recent=False)
                 past_bc_batch = None
                 if self.past_bc_replay_buffer is not None:
-                    past_bc_batch = self.past_bc_replay_buffer.sample(64, recent=False)
+                    past_bc_batch = self.past_bc_replay_buffer.sample(32, recent=False)
                 val_batch = self.validate_buffer.sample(16)
 
             losses = self.sac_agent.update(bc_batch, past_bc_batch, val_batch)
@@ -168,6 +167,7 @@ class TaskPlanningAgentInterface(AgentInterface):
         with self._buffer_lock:
             self.bc_replay_buffer.add(
                 transition["rgb_image"],
+                transition["rgb_hand_image"],
                 transition["heatmap"],
                 transition["robot_state"],
                 transition["skill"],

@@ -29,14 +29,6 @@ class TaskPlanningStateInterface(StateInterface):
             1
         )
         
-        self.bboxes_subscriber = self._node.create_subscription(
-            BoundingBoxes,
-            "/easy_object_detection/bounding_boxes",
-            self._bboxes_callback,
-            1,
-            callback_group=self.state_interface_callback_group
-        )
-        
         self.selected_bbox_subscriber = self._node.create_subscription(
             BoundingBox,
             "selected_box",
@@ -62,6 +54,13 @@ class TaskPlanningStateInterface(StateInterface):
             qos_profile=1,
             callback_group=self.state_interface_callback_group
         )
+        self.rgb_hand_subscriber = self._node.create_subscription(
+            msg_type=Image,
+            topic="camera/rgb_hand",
+            callback=self._rgb_image_hand_callback,
+            qos_profile=1,
+            callback_group=self.state_interface_callback_group
+        )
         self.cv_bridge = CvBridge()
         
         self.reward = 0.0
@@ -69,9 +68,6 @@ class TaskPlanningStateInterface(StateInterface):
         
     def check_sanity(self):
         return self.state["rgb_image"] is not None
-        
-    def _bboxes_callback(self, msg: BoundingBoxes):
-        return
             
     def _rgb_image_callback(self, msg: Image):
         rgb_image = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
@@ -80,6 +76,12 @@ class TaskPlanningStateInterface(StateInterface):
         self.state["rgb_image"] = rgb_image
         self.img_width = msg.width
         self.img_height = msg.height
+
+    def _rgb_image_hand_callback(self, msg: Image):
+        rgb_image_hand = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        # Resize to 224x224
+        rgb_image_hand = cv2.resize(rgb_image_hand, (64, 64))
+        self.state["rgb_image_hand"] = rgb_image_hand
         
         
     def _selected_bbox_callback(self, msg: BoundingBox):
@@ -112,6 +114,9 @@ class TaskPlanningStateInterface(StateInterface):
         
     def get_rgb_image(self):
         return self.state["rgb_image"]
+    
+    def get_rgb_hand_image(self):
+        return self.state["rgb_image_hand"]
     
     def get_robot_state(self):
         return self.state["robot_state"]

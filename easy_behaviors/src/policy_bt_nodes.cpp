@@ -42,10 +42,10 @@ namespace easy_behaviors
             {
                 if (bbox.x < 180 || bbox.x > 460) continue;
                 int dx = static_cast<int>(bbox.x) - 320;
-                int dy = static_cast<int>(bbox.y) - 420;
+                int dy = static_cast<int>(bbox.y) - 400;
                 double distance = std::sqrt(dx * dx + dy * dy);
-                if (distance < 60 || distance > 200) continue;
-                if (bbox.y > 380) continue;
+                if (distance < 60 || distance > 220) continue;
+                if (bbox.y > 340) continue;
 
                 filtered_bboxes.push_back(bbox);
             }
@@ -95,15 +95,15 @@ namespace easy_behaviors
         : node_(std::make_shared<rclcpp::Node>("policy_node")),
           BT::StatefulActionNode(name, config)
     {
-        action_point_publisher_ = node_->create_publisher<easy_interfaces::msg::Pixel>("selected_point", 1);
+        action_point_publisher_ = node_->create_publisher<easy_interfaces::msg::Pixel>("/selected_point", 1);
         action_result_subscription_ = node_->create_subscription<std_msgs::msg::Bool>(
-            "skill_execution/result", 1,
+            "/skill_execution/result", 1,
             [this](const std_msgs::msg::Bool::SharedPtr msg)
             {
                 action_done_ = msg->data;
             });
-        set_skill_client_ = node_->create_client<easy_interfaces::srv::SetString>("skill_execution/set_action");
-        set_mode_client_ = node_->create_client<easy_interfaces::srv::SetString>("skill_execution/set_mode");
+        set_skill_client_ = node_->create_client<easy_interfaces::srv::SetString>("/skill_execution/set_action");
+        set_mode_client_ = node_->create_client<easy_interfaces::srv::SetString>("/skill_execution/set_mode");
     }
 
     BT::NodeStatus PolicyNode::onStart()
@@ -130,13 +130,15 @@ namespace easy_behaviors
         set_skill_client_->wait_for_service();
         auto skill_request = std::make_shared<easy_interfaces::srv::SetString::Request>();
         skill_request->data = _skill;
-        set_skill_client_->async_send_request(skill_request);
+        auto future = set_skill_client_->async_send_request(skill_request);
+        rclcpp::spin_until_future_complete(node_, future);
 
         set_mode_client_->wait_for_service();
         auto mode_request = std::make_shared<easy_interfaces::srv::SetString::Request>();
 
         mode_request->data = mode_mapping_[_mode];
-        set_mode_client_->async_send_request(mode_request);
+        auto future_mode = set_mode_client_->async_send_request(mode_request);
+        rclcpp::spin_until_future_complete(node_, future_mode);
 
         if (_mode == "expert")
         {
@@ -389,5 +391,92 @@ namespace easy_behaviors
         setOutput("count", count);
         RCLCPP_INFO(node_->get_logger(), "CounterNode: Key '%s' incremented by %d, current count is %d", key.c_str(), increment, count);
         return BT::NodeStatus::SUCCESS;
+    }
+
+    TimeCounterNode::TimeCounterNode(const std::string &name, const BT::NodeConfiguration &config)
+        : node_(std::make_shared<rclcpp::Node>("time_counter_node")),
+          BT::SyncActionNode(name, config)
+    {
+    }
+
+    BT::NodeStatus TimeCounterNode::tick()
+    {
+        // Get the input key and switch value
+        std::string key;
+        std::string switch_value;
+        if (!getInput<std::string>("key", key))
+        {
+            RCLCPP_ERROR(node_->get_logger(), "TimeCounterNode: Missing input 'key'");
+            return BT::NodeStatus::FAILURE;
+        }
+        if (!getInput<std::string>("switch", switch_value))
+        {
+            RCLCPP_ERROR(node_->get_logger(), "TimeCounterNode: Missing input 'switch'");
+            return BT::NodeStatus::FAILURE;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "TimeCounterNode: Key '%s', Switch '%s'", key.c_str(), switch_value.c_str());
+
+        // Handle the switch value
+        if (switch_value == "start")
+        {
+            setOutput("output_time", node_->get_clock()->now().seconds());
+        }
+        else if (switch_value == "stop")
+        {
+            getInput<double>("input_time", start_times[key]);
+            double end_time = node_->get_clock()->now().seconds();
+            double elapsed_ms = (end_time - start_times[key]);
+            durations[key].push_back(elapsed_ms);
+            RCLCPP_INFO(node_->get_logger(), "TimeCounterNode: Key '%s' elapsed time recorded: %.2f seconds", key.c_str(), elapsed_ms);
+            appendCSV(key, elapsed_ms);
+            printStatistics(key);
+            setOutput("output_time", end_time);
+        }
+        else
+        {
+            RCLCPP_ERROR(node_->get_logger(), "TimeCounterNode: Invalid switch value '%s' for key '%s'", switch_value.c_str(), key.c_str());
+            return BT::NodeStatus::FAILURE;
+        }
+
+        return BT::NodeStatus::SUCCESS;
+    }
+
+    void TimeCounterNode::printStatistics(const std::string &key)
+    {
+        const auto &times = durations[key];
+        if (times.empty())
+        {
+            RCLCPP_INFO(node_->get_logger(), "TimeCounterNode: No durations recorded for key '%s'", key.c_str());
+            return;
+        }
+
+        double sum = std::accumulate(times.begin(), times.end(), 0.0);
+        double mean = sum / times.size();
+        double sq_sum = std::inner_product(times.begin(), times.end(), times.begin(), 0.0);
+        double stdev = std::sqrt(sq_sum / times.size() - mean * mean);
+
+        RCLCPP_INFO(node_->get_logger(), "TimeCounterNode: Statistics for key '%s' - Count: %zu, Mean: %.2f seconds, StdDev: %.2f seconds",
+                    key.c_str(), times.size(), mean, stdev);
+    }
+
+    void TimeCounterNode::appendCSV(const std::string &key, double elapsed_time)
+    {
+        std::ofstream csv_file;
+        csv_file.open("time_counter_log.csv", std::ios::app);
+        if (!csv_file.is_open())
+        {
+            RCLCPP_ERROR(node_->get_logger(), "TimeCounterNode: Failed to open CSV file for logging");
+            return;
+        }
+
+        // Write header if the file is empty
+        if (csv_file.tellp() == 0)
+        {
+            csv_file << "Key,ElapsedTime\n";
+        }
+
+        csv_file << key << "," << elapsed_time << "\n";
+        csv_file.close();
     }
 } // namespace easy_behaviors

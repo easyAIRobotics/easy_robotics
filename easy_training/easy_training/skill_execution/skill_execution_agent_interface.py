@@ -49,6 +49,7 @@ class SkillExecutionAgentInterface(AgentInterface):
         )
         self.action = "pick"
         self.action_interface.set_action(self.action)
+        self.state_interface.set_action(self.action)
         
         self.rl_replay_buffer = SkillExecutionReplayBuffer(
             capacity=RL_BUFFER_CAPACITY,
@@ -191,7 +192,7 @@ class SkillExecutionAgentInterface(AgentInterface):
         try:
             with self._buffer_lock:
                 now = time.time()
-                if now - self.last_load_stamp > 60:  # Reload buffers every 1 minute
+                if now - self.last_load_stamp > 20:  # Reload buffers every 1 minute
                     self.load_random_buffers()
                     self.last_load_stamp = now
                     

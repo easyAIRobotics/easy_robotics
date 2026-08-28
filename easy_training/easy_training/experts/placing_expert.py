@@ -113,7 +113,7 @@ class PlacingExpert:
                 
                 goal_req = ExecuteGoal.Request()
                 goal_req.speed_factor = 0.5
-                goal_req.planning_time = 2.0
+                goal_req.planning_time = 1.0
                 goal_req.goal.header.frame_id = BASE_FRAME
                 goal_req.goal.header.stamp = self._node.get_clock().now().to_msg()
                 
@@ -132,7 +132,7 @@ class PlacingExpert:
                     while not future.done():
                         time.sleep(0.001)
                 
-                goal_req.planning_time = 5.0
+                goal_req.planning_time = 1.0
                 goal_req.goal.pose.position.x = float(placing_point[0])
                 goal_req.goal.pose.position.y = float(placing_point[1])
                 goal_req.goal.pose.position.z = float(placing_point[2])
