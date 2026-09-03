@@ -18,7 +18,7 @@ def generate_launch_description():
     """
 
     pkg_easy_behaviors = get_package_share_directory("easy_behaviors")
-    default_tree_path = os.path.join(pkg_easy_behaviors, "bt_xml", "box_sorting_skill_test.xml")
+    default_tree_path = os.path.join(pkg_easy_behaviors, "bt_xml", "box_sorting_skill_expert_test.xml")
 
     # Declare launch argument for tree directory
     tree_path_arg = DeclareLaunchArgument(

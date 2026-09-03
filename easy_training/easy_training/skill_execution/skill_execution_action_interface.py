@@ -183,7 +183,7 @@ class SkillExecutionActionInterface(ActionInterface):
                     self.send_joint_command(bounded_joint_positions)
                 else:
                     reward -= COLLISION_PENALTY
-                self.send_gripper_command(act["suction_command"])
+                self.send_gripper_command(act["suction_command"], state_interface.get_suction_state())
             taken_act = act
             
             self.wait_for_next_state()
@@ -308,8 +308,11 @@ class SkillExecutionActionInterface(ActionInterface):
         self.joint_command_pub.publish(joint_command_msg)
         
         
-    def send_gripper_command(self, suction_command: float):
-        suction_on = suction_command > 0.2
+    def send_gripper_command(self, suction_command: float, suction_state: float):
+        threshold = 0.4
+        if suction_state > 0.5:
+            threshold = 0.65
+        suction_on = suction_command > threshold
         suction_command_msg = Bool()
         suction_command_msg.data = suction_on
         self.cmd_suction_pub.publish(suction_command_msg)

@@ -107,7 +107,7 @@ class SkillExecutionPolicyNetwork(nn.Module):
         max_vals = torch.full_like(log_std, self.LOG_STD_MAX)
 
         min_vals[..., -1] = -10.0
-        max_vals[..., -1] = -2.0
+        max_vals[..., -1] = -4.0
         
         log_std = torch.max(torch.min(log_std, max_vals), min_vals)
         return mean, log_std
@@ -286,6 +286,7 @@ class SkillExecutionSACAgent(SACAgent):
         else:
             action[..., :9] *= self.max_range
         action[..., self.gripper_act_id] = action[..., self.gripper_act_id] * 2.0
+        print(f"GRIPPER_RAW ACTION: {action[..., self.gripper_act_id]}", flush=True)
 
         # delta rotation scaling
         # delta_rot = action[..., 3:6] * self.delta_angle_max

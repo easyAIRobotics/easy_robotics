@@ -44,7 +44,7 @@ namespace easy_behaviors
                 int dx = static_cast<int>(bbox.x) - 320;
                 int dy = static_cast<int>(bbox.y) - 400;
                 double distance = std::sqrt(dx * dx + dy * dy);
-                if (distance < 60 || distance > 220) continue;
+                if (distance < 20 || distance > 220) continue;
                 if (bbox.y > 340) continue;
 
                 filtered_bboxes.push_back(bbox);

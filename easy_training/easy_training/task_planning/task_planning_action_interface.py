@@ -204,11 +204,11 @@ class TaskPlanningActionInterface(ActionInterface):
                 # Calculate the score as the sum of attention values within the bounding box
                 sum_score = np.sum(heatmap[y1:y2, x1:x2])
                 print(f"[TaskPlanningActionInterface] Bounding box ({x1}, {y1}, {x2}, {y2}) has sum score: {sum_score}", flush=True)
-                mean_score = sum_score / np.sqrt((y2 - y1) * (x2 - x1) + 1e-6)  # Avoid division by zero
+                mean_score = sum_score / ((y2 - y1) * (x2 - x1) + 0.01)
                 scores.append(mean_score)
             if self._last_selected_bbox is not None:
                 # Double score for the last selected bounding box to encourage consistency
-                scores[-1] *= 1.5
+                scores[-1] *= 2.0
                 
             # Prob normalize the scores to get probabilities
             scores = np.array(scores)

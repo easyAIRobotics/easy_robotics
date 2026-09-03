@@ -415,6 +415,9 @@ class SkillExecutionStateInterface(StateInterface):
             [self.state["suction_state"]], dtype=np.float32
         )
         
+    def get_suction_state(self):
+        return self.state["suction_state"]
+        
     def get_done(self):
         return self.state["done"]
         
@@ -487,6 +490,6 @@ class SkillExecutionStateInterface(StateInterface):
         # Check if the end-effector is within a certain distance above the object
         distance_xy = np.linalg.norm(ee_position[:2] - object_center[:2])
         height_diff = ee_position[2] - object_center[2]
-        return False
-        # return distance_xy < 0.07 and height_diff > 0.05
+        # return False
+        return distance_xy < 0.04 and height_diff < 0.07
                         
